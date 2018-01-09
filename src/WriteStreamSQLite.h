@@ -59,13 +59,13 @@ protected:
         }
 
         for (size_t i = 0; i < arity; i++) {
-            int32_t value;
+            int64_t value;
             if (symbolMask.isSymbol(i)) {
                 value = getSymbolTableID(tuple[i]);
             } else {
-                value = (int32_t)tuple[i];
+                value = (int64_t)tuple[i];
             }
-            if (sqlite3_bind_int(insertStatement, i + 1, value) != SQLITE_OK) {
+            if (sqlite3_bind_int64(insertStatement, i + 1, value) != SQLITE_OK) {
                 throwError("SQLite error in sqlite3_bind_text: ");
             }
         }

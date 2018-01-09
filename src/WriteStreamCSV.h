@@ -67,14 +67,14 @@ protected:
         if (symbolMask.isSymbol(0)) {
             file << symbolTable.unsafeResolve(tuple[0]);
         } else {
-            file << static_cast<int32_t>(tuple[0]);
+            file << static_cast<int64_t>(tuple[0]);
         }
         for (size_t col = 1; col < arity; ++col) {
             file << delimiter;
             if (symbolMask.isSymbol(col)) {
                 file << symbolTable.unsafeResolve(tuple[col]);
             } else {
-                file << static_cast<int32_t>(tuple[col]);
+                file << static_cast<int64_t>(tuple[col]);
             }
         }
         file << "\n";
@@ -116,14 +116,14 @@ protected:
         if (symbolMask.isSymbol(0)) {
             file << symbolTable.unsafeResolve(tuple[0]);
         } else {
-            file << static_cast<int32_t>(tuple[0]);
+            file << static_cast<int64_t>(tuple[0]);
         }
         for (size_t col = 1; col < arity; ++col) {
             file << delimiter;
             if (symbolMask.isSymbol(col)) {
                 file << symbolTable.unsafeResolve(tuple[col]);
             } else {
-                file << static_cast<int32_t>(tuple[col]);
+                file << static_cast<int64_t>(tuple[col]);
             }
         }
         file << "\n";
@@ -166,14 +166,14 @@ protected:
         if (symbolMask.isSymbol(0)) {
             std::cout << symbolTable.unsafeResolve(tuple[0]);
         } else {
-            std::cout << static_cast<int32_t>(tuple[0]);
+            std::cout << static_cast<int64_t>(tuple[0]);
         }
         for (size_t col = 1; col < arity; ++col) {
             std::cout << delimiter;
             if (symbolMask.isSymbol(col)) {
                 std::cout << symbolTable.unsafeResolve(tuple[col]);
             } else {
-                std::cout << static_cast<int32_t>(tuple[col]);
+                std::cout << static_cast<int64_t>(tuple[col]);
             }
         }
         std::cout << "\n";

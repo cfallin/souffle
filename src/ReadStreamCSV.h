@@ -103,7 +103,7 @@ protected:
                 tuple[inputMap[column]] = symbolTable.unsafeLookup(element.c_str());
             } else {
                 try {
-                    tuple[inputMap[column]] = std::stoi(element.c_str());
+                    tuple[inputMap[column]] = std::stoll(element.c_str());
                 } catch (...) {
                     if (!error) {
                         std::stringstream errorMessage;

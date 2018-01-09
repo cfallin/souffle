@@ -70,7 +70,7 @@ protected:
                 tuple[column] = symbolTable.unsafeLookup(element.c_str());
             } else {
                 try {
-                    tuple[column] = std::stoi(element.c_str());
+                    tuple[column] = std::stoll(element.c_str());
                 } catch (...) {
                     std::stringstream errorMessage;
                     errorMessage << "Error converting number in column " << (column) + 1;
