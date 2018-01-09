@@ -25,13 +25,13 @@ namespace souffle {
 /**
  * Type of an element in a tuple.
  *
- * Default type is int32_t; may be overridden by user
+ * Default type is int64_t; may be overridden by user
  * defining RAM_DOMAIN_TYPE.
  */
 #ifdef RAM_DOMAIN_TYPE
 typedef RAM_DOMAIN_TYPE RamDomain;
 #else
-typedef int32_t RamDomain;
+typedef int64_t RamDomain;
 #endif
 
 /** lower and upper boundaries for the ram domain **/
