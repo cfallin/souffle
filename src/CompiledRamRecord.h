@@ -77,7 +77,6 @@ template <typename Tuple>
 class RecordMap {
     // create blocks of a million entries
     static const std::size_t BLOCK_SIZE = 1 << 20;
-    static const std::size_t NUM_BLOCKS = 1 << (sizeof(RamDomain) * 8 - 20);
 
     /** The definition of the tuple type handled by this instance */
     using tuple_type = Tuple;
@@ -86,7 +85,7 @@ class RecordMap {
     using block_type = std::array<tuple_type, BLOCK_SIZE>;
 
     /** The type utilized for the block index */
-    using block_index_type = std::array<std::unique_ptr<block_type>, NUM_BLOCKS>;
+    using block_index_type = std::unordered_map<uint64_t, std::unique_ptr<block_type>>;
 
     /** The mapping from tuples to references/indices */
     std::unordered_map<tuple_type, RamDomain> r2i;
