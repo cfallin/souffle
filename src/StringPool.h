@@ -94,7 +94,7 @@ public:
                     switch (str[i]) {
                         case '"': *p++ = '"'; break;
                         case '\\': *p++ = '\\'; break;
-                        default: break;
+                        default: *p++ = '\\'; *p++ = str[i]; break;
                     }
                     backslash = false;
                 } else {
