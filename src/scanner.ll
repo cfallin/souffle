@@ -189,7 +189,7 @@
 [\?a-zA-Z]|[_\?a-zA-Z][_\?a-zA-Z0-9]+ {
                                         return yy::parser::make_IDENT(SLOOKUP(yytext), yylloc);
                                       }
-\"([^\"]*|\\[^n])*\"                  {
+\"([^\\\"]|\\.)*\"                    {
                                         yytext[strlen(yytext)-1]=0;
                                         if(strlen(&yytext[1]) == 0) {
                                           driver.error(yylloc, "string literal is empty");
@@ -206,7 +206,7 @@
                                             break;
                                           }
                                         }
-                                        return yy::parser::make_STRING(SLOOKUP(&yytext[1]), yylloc);
+                                        return yy::parser::make_STRING(SLOOKUP_ESC(&yytext[1]), yylloc);
                                       }
 \#.*$                                 {
                                         char fname[yyleng+1];

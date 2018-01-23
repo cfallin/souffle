@@ -10,6 +10,7 @@
 namespace souffle {
 
 #define SLOOKUP(s) StringPool::instance()->lookup(s)
+#define SLOOKUP_ESC(s) StringPool::instance()->lookup_esc(s)
 
 class StringPool {
     /* Hash table */
@@ -71,6 +72,44 @@ public:
         }
 
         return res;
+    }
+
+    inline const char* lookup_esc(const char* str) {
+        size_t len = strlen(str);
+        bool has_escape = false;
+        for (size_t i = 0; i < len; i++) {
+            if (str[i] == '\\') {
+                has_escape = true;
+                break;
+            }
+        }
+        if (!has_escape) {
+            return lookup(str);
+        } else {
+            char* translated = (char*)malloc(len + 1);
+            char* p = translated;
+            bool backslash = false;
+            for (size_t i = 0; i < len; i++) {
+                if (backslash) {
+                    switch (str[i]) {
+                        case '"': *p++ = '"'; break;
+                        case '\\': *p++ = '\\'; break;
+                        default: break;
+                    }
+                    backslash = false;
+                } else {
+                    if (str[i] == '\\') {
+                        backslash = true;
+                    } else {
+                        *p++ = str[i];
+                    }
+                }
+            }
+            *p++ = 0;
+            const char* res = lookup(translated);
+            free(translated);
+            return res;
+        }
     }
 };
 
