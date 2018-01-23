@@ -77,6 +77,7 @@ template <typename Tuple>
 class RecordMap {
     // create blocks of a million entries
     static const std::size_t BLOCK_SIZE = 1 << 20;
+    static const std::size_t NUM_BLOCKS = 1 << 12;
 
     /** The definition of the tuple type handled by this instance */
     using tuple_type = Tuple;
@@ -85,19 +86,33 @@ class RecordMap {
     using block_type = std::array<tuple_type, BLOCK_SIZE>;
 
     /** The type utilized for the block index */
-    using block_index_type = std::unordered_map<uint64_t, std::unique_ptr<block_type>>;
+    using block_index_type = std::array<std::unique_ptr<block_type>, NUM_BLOCKS>;
+    using block_slow_index_type = std::unordered_map<uint64_t, std::unique_ptr<block_type>>;
 
     /** The mapping from tuples to references/indices */
     std::unordered_map<tuple_type, RamDomain> r2i;
 
     /** The mapping from indices to tuples */
     block_index_type i2r;
+    block_slow_index_type i2r_slow;
 
     /** a lock for the pack operation */
     Lock pack_lock;
 
 public:
     RecordMap() {}
+
+private:
+    inline std::unique_ptr<block_type>& block_ref(size_t index) {
+	auto block = index / BLOCK_SIZE;
+	if (block < NUM_BLOCKS) {
+	    return i2r[block];
+	} else {
+	    return i2r_slow[block];
+	}
+    }
+
+public:
 
     /**
      * Packs the given tuple -- and may create a new reference if necessary.
@@ -124,7 +139,7 @@ public:
                 assert(index != std::numeric_limits<RamDomain>::max());
 
                 // create entry for unpacking
-                auto& list = i2r[index / BLOCK_SIZE];
+                auto& list = block_ref(index);
                 if (!list) list = std::unique_ptr<block_type>(new block_type());
 
                 // insert tuple
@@ -141,7 +156,7 @@ public:
      */
     const tuple_type& unpack(RamDomain index) {
         // just look up the right spot
-        return (*(i2r[index / BLOCK_SIZE]))[index % BLOCK_SIZE];
+        return (*(block_ref(index)))[index % BLOCK_SIZE];
     }
 };
 
