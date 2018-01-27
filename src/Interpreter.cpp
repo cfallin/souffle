@@ -867,6 +867,7 @@ void Interpreter::invoke(const RamProgram& prog, InterpreterEnvironment& env) co
         run(queryStrategy, report, &os, *(prog.getMain()), env);
     } else {
         run(queryStrategy, report, nullptr, *(prog.getMain()), env);
+	std::cout << "Printing records now\n";
     }
     SignalHandler::instance()->reset();
 }

@@ -21,6 +21,8 @@
 #include "SymbolTable.h"
 #include "WriteStream.h"
 #include "WriteStreamCSV.h"
+#include "RecordWriteStream.h"
+#include "RecordWriteStreamCSV.h"
 
 #ifdef USE_SQLITE
 #include "ReadStreamSQLite.h"
@@ -42,6 +44,10 @@ public:
 
     void registerWriteStreamFactory(std::shared_ptr<WriteStreamFactory> factory) {
         outputFactories[factory->getName()] = factory;
+    }
+
+    void registerRecordWriteStreamFactory(std::shared_ptr<RecordWriteStreamFactory> factory) {
+        outputRecordFactories[factory->getName()] = factory;
     }
 
     void registerReadStreamFactory(std::shared_ptr<ReadStreamFactory> factory) {
@@ -70,6 +76,17 @@ public:
         }
         return inputFactories.at(ioType)->getReader(symbolMask, symbolTable, ioDirectives, provenance);
     }
+    /**
+     * Return a new RecordWriteStream
+     */
+    std::unique_ptr<RecordWriteStream> getRecordWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) const {
+        std::string ioType = ioDirectives.getIOType();
+        if (outputRecordFactories.count(ioType) == 0) {
+            throw std::invalid_argument("Requested output type <" + ioType + "> is not supported.");
+        }
+        return outputRecordFactories.at(ioType)->getRecordWriter(symbolTable, ioDirectives);
+    }
+
     ~IOSystem() = default;
 
 private:
@@ -85,6 +102,8 @@ private:
     };
     std::map<std::string, std::shared_ptr<WriteStreamFactory>> outputFactories;
     std::map<std::string, std::shared_ptr<ReadStreamFactory>> inputFactories;
+
+    std::map<std::string, std::shared_ptr<RecordWriteStreamFactory>> outputRecordFactories;
 };
 
 } /* namespace souffle */
