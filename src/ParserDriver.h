@@ -60,6 +60,7 @@ public:
 
     bool trace_scanning;
 
+    void initAstTranslationUnit(std::string& symtab_filepath, bool nowarn = false);
     std::unique_ptr<AstTranslationUnit> parse(const std::string& f, FILE* in, bool nowarn = false);
     std::unique_ptr<AstTranslationUnit> parse(const std::string& code, bool nowarn = false);
     static std::unique_ptr<AstTranslationUnit> parseTranslationUnit(

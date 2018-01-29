@@ -43,8 +43,13 @@ RamDomain getNull();
 bool isNull(RamDomain ref);
 
 /**
- * A function to print all the records to a given stream.
+ * A function to print all the records to a given Souffle writer.
  */
  void printRecords(const std::unique_ptr<RecordWriteStream>& writer);
+
+/**
+ * A function to print all the records to stdout.
+ */
+void printRecords();
 
 }  // end of namespace souffle

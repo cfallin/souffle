@@ -17,6 +17,8 @@
 #include "IODirectives.h"
 #include "ReadStream.h"
 #include "ReadStreamCSV.h"
+#include "RecordReadStream.h"
+#include "RecordReadStreamCSV.h"
 #include "SymbolMask.h"
 #include "SymbolTable.h"
 #include "WriteStream.h"
@@ -54,6 +56,10 @@ public:
         inputFactories[factory->getName()] = factory;
     }
 
+    void registerRecordReadStreamFactory(std::shared_ptr<RecordReadStreamFactory> factory) {
+        inputRecordFactories[factory->getName()] = factory;
+    }
+
     /**
      * Return a new WriteStream
      */
@@ -77,6 +83,16 @@ public:
         return inputFactories.at(ioType)->getReader(symbolMask, symbolTable, ioDirectives, provenance);
     }
     /**
+     * Return a new RecordReadStream
+     */
+    std::unique_ptr<RecordReadStream> getRecordReader(SymbolTable& symbolTable, const IODirectives& ioDirectives) const {
+        std::string ioType = ioDirectives.getIOType();
+        if (inputFactories.count(ioType) == 0) {
+            throw std::invalid_argument("Requested input type <" + ioType + "> is not supported.");
+        }
+        return inputRecordFactories.at(ioType)->getReader(symbolTable, ioDirectives);
+    }
+    /**
      * Return a new RecordWriteStream
      */
     std::unique_ptr<RecordWriteStream> getRecordWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) const {
@@ -84,7 +100,7 @@ public:
         if (outputRecordFactories.count(ioType) == 0) {
             throw std::invalid_argument("Requested output type <" + ioType + "> is not supported.");
         }
-        return outputRecordFactories.at(ioType)->getRecordWriter(symbolTable, ioDirectives);
+        return outputRecordFactories.at(ioType)->getWriter(symbolTable, ioDirectives);
     }
 
     ~IOSystem() = default;
@@ -95,6 +111,7 @@ private:
         registerReadStreamFactory(std::make_shared<ReadCinCSVFactory>());
         registerWriteStreamFactory(std::make_shared<WriteFileCSVFactory>());
         registerWriteStreamFactory(std::make_shared<WriteCoutCSVFactory>());
+        registerRecordReadStreamFactory(std::make_shared<RecordReadFileCSVFactory>());
 	registerRecordWriteStreamFactory(std::make_shared<RecordWriteCoutCSVFactory>());
 	registerRecordWriteStreamFactory(std::make_shared<RecordWriteFileCSVFactory>());
 #ifdef USE_SQLITE
@@ -105,6 +122,7 @@ private:
     std::map<std::string, std::shared_ptr<WriteStreamFactory>> outputFactories;
     std::map<std::string, std::shared_ptr<ReadStreamFactory>> inputFactories;
 
+    std::map<std::string, std::shared_ptr<RecordReadStreamFactory>> inputRecordFactories;
     std::map<std::string, std::shared_ptr<RecordWriteStreamFactory>> outputRecordFactories;
 };
 

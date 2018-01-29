@@ -31,6 +31,7 @@
 #include "SignalHandler.h"
 #include "TypeSystem.h"
 #include "UnaryFunctorOps.h"
+#include "Util.h"
 
 #include <algorithm>
 #include <chrono>
@@ -856,6 +857,25 @@ void run(const QueryExecutionStrategy& strategy, std::ostream* report, std::ostr
 
 void Interpreter::invoke(const RamProgram& prog, InterpreterEnvironment& env) const {
     SignalHandler::instance()->set();
+
+    // std::cout << "Reading records now\n";
+    std::string recordsInFilepath = Global::config().get("fact-dir") + "/souffle_records_read.csv";
+    if (fileExists(recordsInFilepath)) {
+	std::map<std::string, std::string> readIODirectivesMap = {
+	    {"IO", "file"},
+	    {"filename", recordsInFilepath},
+	    {"name", "souffle_records"}
+	};
+	IODirectives readIODirectives(readIODirectivesMap);
+	try {
+	    std::unique_ptr<RecordReadStream> reader = IOSystem::getInstance()
+		.getRecordReader(env.getSymbolTable(), readIODirectives);
+	    reader->readAll();
+	} catch (std::exception& e) {
+	std::cerr << e.what();
+	}
+    }
+
     if (Global::config().has("profile")) {
         std::string fname = Global::config().get("profile");
         // open output stream
@@ -867,20 +887,25 @@ void Interpreter::invoke(const RamProgram& prog, InterpreterEnvironment& env) co
         run(queryStrategy, report, &os, *(prog.getMain()), env);
     } else {
         run(queryStrategy, report, nullptr, *(prog.getMain()), env);
-	std::cout << "Printing records now\n";
-	std::map<std::string, std::string> ioDirectivesMap = {
-	    {"IO", "file"},
-	    {"filename", "souffle_records.csv"},
-	    {"name", "souffle_records"}
-	};
-	IODirectives ioDirectives(ioDirectivesMap);
-	try {
-	    printRecords(IOSystem::getInstance()
-			 .getRecordWriter(env.getSymbolTable(), ioDirectives));
-	} catch (std::exception& e) {
-	    std::cerr << e.what();
-	    exit(1);
-	}
+    }
+
+
+    // std::cout << "Printing records now\n";
+    std::string recordsOutFilepath = Global::config().get("output-dir") + "/souffle_records.csv";
+    std::string symtabOutFilepath = Global::config().get("output-dir") + "/souffle_symtab.csv";
+    std::map<std::string, std::string> writeIODirectivesMap = {
+	{"IO", "file"},
+	{"filename", recordsOutFilepath},
+	{"symtabfilename", symtabOutFilepath},
+	{"name", "souffle_records"}
+    };
+    IODirectives writeIODirectives(writeIODirectivesMap);
+    try {
+	printRecords(IOSystem::getInstance()
+		     .getRecordWriter(env.getSymbolTable(), writeIODirectives));
+    } catch (std::exception& e) {
+	std::cerr << e.what();
+	exit(1);
     }
     SignalHandler::instance()->reset();
 }

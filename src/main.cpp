@@ -260,8 +260,11 @@ int main(int argc, char** argv) {
     // ------- parse program -------------
 
     // parse file
+    ParserDriver parserDriver;
+    std::string symtab_filepath = Global::config().get("fact-dir") + "/souffle_symtab_read.csv";
+    parserDriver.initAstTranslationUnit(symtab_filepath, Global::config().has("no-warn"));
     std::unique_ptr<AstTranslationUnit> translationUnit =
-            ParserDriver::parseTranslationUnit("<stdin>", in, Global::config().has("no-warn"));
+	parserDriver.parse("<stdin>", in, Global::config().has("no-warn"));
 
     // close input pipe
     int preprocessor_status = pclose(in);

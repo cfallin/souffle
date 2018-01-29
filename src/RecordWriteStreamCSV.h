@@ -43,7 +43,7 @@ class RecordWriteFileCSV : public RecordWriteStreamCSV, public RecordWriteStream
 public:
     RecordWriteFileCSV(const SymbolTable& symbolTable, const IODirectives& ioDirectives)
             : RecordWriteStream(symbolTable), delimiter(getDelimiter(ioDirectives)),
-              file(ioDirectives.getFileName()) {
+	file(ioDirectives.getFileName()), symtab_file(ioDirectives.get("symtabfilename")) {
         if (ioDirectives.has("headers") && ioDirectives.get("headers") == "true") {
             file << ioDirectives.get("attributeNames") << std::endl;
         }
@@ -53,20 +53,21 @@ public:
 
 protected:
     void writeNext(int ind, const std::vector<RamDomain>& record) override {
-	file << ind << " [";
+	file << record.size() << delimiter << ind << delimiter;
 	for (size_t i = 0; i < record.size(); ++i) {
 	    file << record[i];
-	    if (i < record.size() - 1) file << ", ";
+	    /* if (i < record.size() - 1) file << ", "; */
+	    if (i < record.size() - 1) file << delimiter;
 	}
-	file << "]\n";
+	file << "\n";
     }
 
     void writeSymbolTable() override {
-	symbolTable.print(file);
+	symbolTable.printRaw(symtab_file);
     }
 
     const std::string delimiter;
-    std::ofstream file;
+    std::ofstream file, symtab_file;
 };
 /*
 #ifdef USE_LIBZ
@@ -117,7 +118,7 @@ protected:
     }
 
     void writeSymbolTable() override {
-	symbolTable.print(std::cout);
+	symbolTable.printRaw(std::cout);
     }
 
     const std::string delimiter;
@@ -125,7 +126,7 @@ protected:
 
 class RecordWriteFileCSVFactory : public RecordWriteStreamFactory {
 public:
-    std::unique_ptr<RecordWriteStream> getRecordWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) override {
+    std::unique_ptr<RecordWriteStream> getWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) override {
 /* #ifdef USE_LIBZ */
         /* if (ioDirectives.has("compress")) { */
             /* return std::unique_ptr<RecordWriteGZipFileCSV>( */
@@ -144,7 +145,7 @@ public:
 
 class RecordWriteCoutCSVFactory : public RecordWriteStreamFactory {
 public:
-    std::unique_ptr<RecordWriteStream> getRecordWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) override {
+    std::unique_ptr<RecordWriteStream> getWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) override {
         return std::unique_ptr<RecordWriteCoutCSV>(new RecordWriteCoutCSV(symbolTable, ioDirectives));
     }
     const std::string& getName() const override {

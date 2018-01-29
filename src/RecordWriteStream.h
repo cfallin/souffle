@@ -33,19 +33,20 @@ public:
         for (size_t i = 0; i < records.size(); ++i) {
             writeNext(i, records[i]);
         }
-	writeSymbolTable();
     }
+
+    virtual void writeSymbolTable() = 0;
+
     virtual ~RecordWriteStream() = default;
 
 protected:
     virtual void writeNext(int ind, const std::vector<RamDomain>& record) = 0;
-    virtual void writeSymbolTable() = 0;
     const SymbolTable& symbolTable;
 };
 
 class RecordWriteStreamFactory {
 public:
-    virtual std::unique_ptr<RecordWriteStream> getRecordWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) = 0;
+    virtual std::unique_ptr<RecordWriteStream> getWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) = 0;
 
     virtual const std::string& getName() const = 0;
     virtual ~RecordWriteStreamFactory() = default;

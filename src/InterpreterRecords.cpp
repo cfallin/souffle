@@ -63,6 +63,21 @@ public:
 	for (auto it = maps.begin(); it != maps.end(); ++it) {
 	    writer->writeAll(it->second.i2r);
 	}
+	writer->writeSymbolTable();
+    }
+
+    static void printRecords() {
+	for (auto it = maps.begin(); it != maps.end(); ++it) {
+	    std::cout << "Arity " << it->first << "\n";
+	    RecordMap rm = it->second;
+	    for (vector<RamDomain> record: rm.i2r) {
+		for (RamDomain ele: record) {
+		    std::cout << ele << " ";
+		}
+		std::cout << "\n";
+	    }
+		std::cout << "\n";
+	}
     }
 
     /**
@@ -134,4 +149,7 @@ void printRecords(const std::unique_ptr<RecordWriteStream>& writer) {
     souffle::RecordMap::printRecords(writer);
 }
 
+void printRecords() {
+    souffle::RecordMap::printRecords();
+}
 }  // end of namespace souffle

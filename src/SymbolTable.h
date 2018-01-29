@@ -203,6 +203,16 @@ public:
         out << "}\n";
     }
 
+    /** Print the symbol table to the given stream without much
+	formatting. */
+    void printRaw(std::ostream& out) const {
+	out << strToNum.size() << "\n";
+        out << join(strToNum, "\n", [](std::ostream& out,
+                                              const std::pair<std::string, std::size_t>& entry) {
+	    out << entry.first << "\t" << entry.second;
+        }) << "\n";
+    }
+
     Lock::Lease acquireLock() const {
         return access.acquire();
     }

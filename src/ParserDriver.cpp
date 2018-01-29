@@ -18,6 +18,9 @@
 #include "AstProgram.h"
 #include "AstTranslationUnit.h"
 #include "ErrorReport.h"
+#include "IODirectives.h"
+#include "IOSystem.h"
+#include "Util.h"
 
 typedef struct yy_buffer_state* YY_BUFFER_STATE;
 extern YY_BUFFER_STATE yy_scan_string(const char*, yyscan_t scanner);
@@ -30,6 +33,24 @@ namespace souffle {
 ParserDriver::ParserDriver() : trace_scanning(false), trace_parsing(false) {}
 
 ParserDriver::~ParserDriver() = default;
+
+void ParserDriver::initAstTranslationUnit(std::string& symtab_filepath, bool nowarn) {
+    translationUnit = std::unique_ptr<AstTranslationUnit>(
+            new AstTranslationUnit(std::unique_ptr<AstProgram>(new AstProgram()), nowarn));
+    if (fileExists(symtab_filepath)) {
+	std::map<std::string, std::string> readIODirectivesMap = {
+	    {"IO", "file"},
+	    {"filename", symtab_filepath},
+	    {"symtabfilename", symtab_filepath},
+	    {"name", "souffle_records"}
+	};
+	IODirectives readIODirectives(readIODirectivesMap);
+
+	std::unique_ptr<RecordReadStream> reader = IOSystem::getInstance()
+	    .getRecordReader(translationUnit->getSymbolTable(), readIODirectives);
+	reader->readIntoSymbolTable();
+    }
+}
 
 std::unique_ptr<AstTranslationUnit> ParserDriver::parse(const std::string& f, FILE* in, bool nowarn) {
     translationUnit = std::unique_ptr<AstTranslationUnit>(
@@ -54,7 +75,6 @@ std::unique_ptr<AstTranslationUnit> ParserDriver::parse(const std::string& f, FI
 std::unique_ptr<AstTranslationUnit> ParserDriver::parse(const std::string& code, bool nowarn) {
     translationUnit = std::unique_ptr<AstTranslationUnit>(
             new AstTranslationUnit(std::unique_ptr<AstProgram>(new AstProgram()), nowarn));
-
     scanner_data data;
     data.yyfilename = "<in-memory>";
     yyscan_t scanner;
