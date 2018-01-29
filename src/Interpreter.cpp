@@ -868,6 +868,19 @@ void Interpreter::invoke(const RamProgram& prog, InterpreterEnvironment& env) co
     } else {
         run(queryStrategy, report, nullptr, *(prog.getMain()), env);
 	std::cout << "Printing records now\n";
+	std::map<std::string, std::string> ioDirectivesMap = {
+	    {"IO", "file"},
+	    {"filename", "souffle_records.csv"},
+	    {"name", "souffle_records"}
+	};
+	IODirectives ioDirectives(ioDirectivesMap);
+	try {
+	    printRecords(IOSystem::getInstance()
+			 .getRecordWriter(env.getSymbolTable(), ioDirectives));
+	} catch (std::exception& e) {
+	    std::cerr << e.what();
+	    exit(1);
+	}
     }
     SignalHandler::instance()->reset();
 }

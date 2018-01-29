@@ -17,6 +17,7 @@
 #pragma once
 
 #include "RamTypes.h"
+#include "RamValue.h"
 #include "RecordWriteStream.h"
 
 namespace souffle {
@@ -44,6 +45,6 @@ bool isNull(RamDomain ref);
 /**
  * A function to print all the records to a given stream.
  */
-void printRecords(RecordWriteStream& writer);
+ void printRecords(const std::unique_ptr<RecordWriteStream>& writer);
 
 }  // end of namespace souffle

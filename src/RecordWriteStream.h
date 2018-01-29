@@ -30,14 +30,16 @@ public:
     void writeAll(const std::vector<std::vector<RamDomain>> records) {
         auto lease = symbolTable.acquireLock();
         (void)lease;
-        for (std::vector<RamDomain> current : records) {
-            writeNext(current);
+        for (size_t i = 0; i < records.size(); ++i) {
+            writeNext(i, records[i]);
         }
+	writeSymbolTable();
     }
     virtual ~RecordWriteStream() = default;
 
 protected:
-    virtual void writeNext(const std::vector<RamDomain>& record);
+    virtual void writeNext(int ind, const std::vector<RamDomain>& record) = 0;
+    virtual void writeSymbolTable() = 0;
     const SymbolTable& symbolTable;
 };
 

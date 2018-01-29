@@ -38,11 +38,11 @@ protected:
         return "\t";
     }
 };
-/*
-class RecordWriteFileCSV : public RecordWriteStreamCSV, public WriteStream {
+
+class RecordWriteFileCSV : public RecordWriteStreamCSV, public RecordWriteStream {
 public:
     RecordWriteFileCSV(const SymbolTable& symbolTable, const IODirectives& ioDirectives)
-            : RecordWriteStream(symbolMask, symbolTable, provenance), delimiter(getDelimiter(ioDirectives)),
+            : RecordWriteStream(symbolTable), delimiter(getDelimiter(ioDirectives)),
               file(ioDirectives.getFileName()) {
         if (ioDirectives.has("headers") && ioDirectives.get("headers") == "true") {
             file << ioDirectives.get("attributeNames") << std::endl;
@@ -52,14 +52,23 @@ public:
     ~RecordWriteFileCSV() override = default;
 
 protected:
-    void writeNextTuple(const RamDomain* tuple) override {
+    void writeNext(int ind, const std::vector<RamDomain>& record) override {
+	file << ind << " [";
+	for (size_t i = 0; i < record.size(); ++i) {
+	    file << record[i];
+	    if (i < record.size() - 1) file << ", ";
+	}
+	file << "]\n";
     }
 
-protected:
+    void writeSymbolTable() override {
+	symbolTable.print(file);
+    }
+
     const std::string delimiter;
     std::ofstream file;
 };
-
+/*
 #ifdef USE_LIBZ
 class RecordWriteGZipFileCSV : public RecordWriteStreamCSV, public RecordWriteStream {
 public:
@@ -98,31 +107,41 @@ public:
     }
 
 protected:
-    void writeNext(const std::vector<RamDomain>& record) override {
+    void writeNext(int ind, const std::vector<RamDomain>& record) override {
+	std::cout << ind << " [";
+	for (size_t i = 0; i < record.size(); ++i) {
+	    std::cout << record[i];
+	    if (i < record.size() - 1) std::cout << ", ";
+	}
+	std::cout << "]\n";
+    }
+
+    void writeSymbolTable() override {
+	symbolTable.print(std::cout);
     }
 
     const std::string delimiter;
 };
- /*
-class RecordWriteFileCSVFactory : public RecordsWriteStreamFactory {
+
+class RecordWriteFileCSVFactory : public RecordWriteStreamFactory {
 public:
-    std::unique_ptr<WriteStream> getWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) override {
-#ifdef USE_LIBZ
-        if (ioDirectives.has("compress")) {
-            return std::unique_ptr<RecordWriteGZipFileCSV>(
-                    new RecordWriteGZipFileCSV(symbolTable, ioDirectives));
-        }
-#endif
+    std::unique_ptr<RecordWriteStream> getRecordWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) override {
+/* #ifdef USE_LIBZ */
+        /* if (ioDirectives.has("compress")) { */
+            /* return std::unique_ptr<RecordWriteGZipFileCSV>( */
+                    /* new RecordWriteGZipFileCSV(symbolTable, ioDirectives)); */
+        /* } */
+/* #endif */
         return std::unique_ptr<RecordWriteFileCSV>(
-                new RecordsWriteFileCSV(symbolTable, ioDirectives));
+                new RecordWriteFileCSV(symbolTable, ioDirectives));
     }
     const std::string& getName() const override {
         static const std::string name = "file";
         return name;
     }
-    ~RecordWriteFileCSVFactory() override = default;
+    virtual ~RecordWriteFileCSVFactory() override = default;
 };
- */
+
 class RecordWriteCoutCSVFactory : public RecordWriteStreamFactory {
 public:
     std::unique_ptr<RecordWriteStream> getRecordWriter(const SymbolTable& symbolTable, const IODirectives& ioDirectives) override {

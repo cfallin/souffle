@@ -59,9 +59,9 @@ public:
 	return getForArity(arity);
     }
 
-    static void printRecords(RecordWriteStream& writer) {
+    static void printRecords(const std::unique_ptr<RecordWriteStream>& writer) {
 	for (auto it = maps.begin(); it != maps.end(); ++it) {
-	    writer.writeAll(it->second.i2r);
+	    writer->writeAll(it->second.i2r);
 	}
     }
 
@@ -130,7 +130,7 @@ bool isNull(RamDomain ref) {
     return ref == 0;
 }
 
-void printRecords(RecordWriteStream& writer) {
+void printRecords(const std::unique_ptr<RecordWriteStream>& writer) {
     souffle::RecordMap::printRecords(writer);
 }
 
