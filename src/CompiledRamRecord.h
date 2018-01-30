@@ -125,7 +125,16 @@ public:
 	    std::string str = std::to_string(idx) + delimiter + tuple.printRaw(delimiter);
 	    writer->writeNextLine(str);
 	}
-	writer->writeSymbolTable();
+    }
+
+    void printRecords() {
+	std::string delimiter = "\t";
+	for (auto it = r2i.begin(); it != r2i.end(); ++it) {
+	    tuple_type tuple = it->first;
+	    RamDomain idx = it->second;
+	    std::string str = std::to_string(idx) + delimiter + tuple.printRaw(delimiter);
+	    std::cout << str << "\n";
+	}
     }
 
     /**

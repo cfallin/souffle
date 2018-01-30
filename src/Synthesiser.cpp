@@ -1415,12 +1415,12 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
 
     os << classname;
     if (Global::config().has("profile")) {
-        os << "(std::string pf=\"profile.log\") : profiling_fname(pf)";
+        os << "(std::string pf=\"profile.log\", std::string inputDirectory = \".\") : profiling_fname(pf)";
         if (initCons.size() > 0) {
             os << ",\n" << initCons;
         }
     } else {
-        os << "()";
+        os << "(std::string inputDirectory = \".\")";
         if (initCons.size() > 0) {
             os << " : " << initCons;
         }
@@ -1430,7 +1430,7 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
 
     os << "// -- initialize symbol table --\n";
     // Read symbol table
-    os << "std::string symtab_filepath = \"" << Global::Global::getSymtabInFilepath() + "\";\n";
+    os << "std::string symtab_filepath = inputDirectory + \"/\" + \"" + Global::getSymtabFilename() + "\";\n";
     os << "if (fileExists(symtab_filepath)) {\n";
 	os << "std::map<std::string, std::string> readIODirectivesMap = {\n";
 	os << "{\"IO\", \"file\"},\n";
@@ -1453,7 +1453,7 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
         os << "\n";
     }
 
-    os << "std::string recordsInFilepath = \"" << Global::getRecordInFilepath() << "\";\n";
+    os << "std::string recordsInFilepath = inputDirectory + \"/\" + \"" + Global::getRecordFilename() + "\";\n";
     os << "if (fileExists(recordsInFilepath)) {\n";
     os << "std::map<std::string, std::string> readIODirectivesMap = {\n";
     os << "{\"IO\", \"file\"},\n";
@@ -1578,8 +1578,8 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
     // issue printAllRecords method
     os << "public:\n";
     os << "void printAllRecords(std::string outputDirectory = \".\") {\n";
-    os << "std::string recordsOutFilepath = \"" + Global::getRecordOutFilepath() + "\";\n";
-    os << "std::string symtabOutFilepath = \"" + Global::getSymtabOutFilepath() + "\";\n";
+    os << "std::string recordsOutFilepath = outputDirectory + \"/\" + \"" + Global::getRecordFilename() + "\";\n";
+    os << "std::string symtabOutFilepath = outputDirectory + \"/\" + \"" + Global::getSymtabFilename() + "\";\n";
     os << "std::map<std::string, std::string> writeIODirectivesMap = {\n";
     os << "{\"IO\", \"file\"},\n";
     os << "{\"filename\", recordsOutFilepath},\n";
@@ -1588,12 +1588,11 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
     os << "};\n";
     os << "IODirectives writeIODirectives(writeIODirectivesMap);\n";
     os << "try {\n";
-
+    os << "auto writer = IOSystem::getInstance().getRecordWriter(symTable, writeIODirectives);\n";
     for (int arity: recArities) {
-	os << "printRecords<ram::Tuple<RamDomain," << arity << ">>(IOSystem::getInstance()\n";
-	os << ".getRecordWriter(symTable, writeIODirectives));\n";
+	os << "printRecords<ram::Tuple<RamDomain," << arity << ">>(writer);\n";
     }
-
+    os << "writer->writeSymbolTable();\n";
     os << "} catch (std::exception& e) {\n";
     os << "std::cerr << e.what();\n";
     os << "exit(1);\n";
@@ -1745,9 +1744,9 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
 
     os << "souffle::";
     if (Global::config().has("profile")) {
-        os << classname + " obj(opt.getProfileName());\n";
+        os << classname + " obj(opt.getProfileName(), opt.getInputFileDir());\n";
     } else {
-        os << classname + " obj;\n";
+        os << classname + " obj(opt.getInputFileDir());\n";
     }
 
     os << "obj.runAll(opt.getInputFileDir(), opt.getOutputFileDir());\n";

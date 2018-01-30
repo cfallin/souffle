@@ -63,7 +63,6 @@ protected:
 	file << record.size() << delimiter << ind << delimiter;
 	for (size_t i = 0; i < record.size(); ++i) {
 	    file << record[i];
-	    /* if (i < record.size() - 1) file << ", "; */
 	    if (i < record.size() - 1) file << delimiter;
 	}
 	file << "\n";
