@@ -858,8 +858,7 @@ void run(const QueryExecutionStrategy& strategy, std::ostream* report, std::ostr
 void Interpreter::invoke(const RamProgram& prog, InterpreterEnvironment& env) const {
     SignalHandler::instance()->set();
 
-    // std::cout << "Reading records now\n";
-    std::string recordsInFilepath = Global::config().get("fact-dir") + "/souffle_records_read.csv";
+    std::string recordsInFilepath = Global::getRecordInFilepath();
     if (fileExists(recordsInFilepath)) {
 	std::map<std::string, std::string> readIODirectivesMap = {
 	    {"IO", "file"},
@@ -872,7 +871,7 @@ void Interpreter::invoke(const RamProgram& prog, InterpreterEnvironment& env) co
 		.getRecordReader(env.getSymbolTable(), readIODirectives);
 	    reader->readAll();
 	} catch (std::exception& e) {
-	std::cerr << e.what();
+	    std::cerr << e.what();
 	}
     }
 
@@ -891,8 +890,8 @@ void Interpreter::invoke(const RamProgram& prog, InterpreterEnvironment& env) co
 
 
     // std::cout << "Printing records now\n";
-    std::string recordsOutFilepath = Global::config().get("output-dir") + "/souffle_records.csv";
-    std::string symtabOutFilepath = Global::config().get("output-dir") + "/souffle_symtab.csv";
+    std::string recordsOutFilepath = Global::getRecordOutFilepath();
+    std::string symtabOutFilepath = Global::getSymtabOutFilepath();
     std::map<std::string, std::string> writeIODirectivesMap = {
 	{"IO", "file"},
 	{"filename", recordsOutFilepath},

@@ -131,5 +131,18 @@ public:
         static MainConfig _config;
         return _config;
     }
+    /* Obtain file names for records and symbol tables */
+    static std::string getRecordOutFilepath() {
+	return config().get("output-dir") + "/__souffle_records.csv";
+    }
+    static std::string getRecordInFilepath() {
+	return config().get("fact-dir") + "/__souffle_records.csv";
+    }
+    static std::string getSymtabOutFilepath() {
+	return config().get("output-dir") + "/__souffle_symtab.csv";
+    }
+    static std::string getSymtabInFilepath() {
+	return config().get("fact-dir") + "/__souffle_symtab.csv";
+    }
 };
 }  // namespace souffle

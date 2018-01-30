@@ -261,7 +261,7 @@ int main(int argc, char** argv) {
 
     // parse file
     ParserDriver parserDriver;
-    std::string symtab_filepath = Global::config().get("fact-dir") + "/souffle_symtab_read.csv";
+    std::string symtab_filepath = Global::Global::getSymtabInFilepath();
     parserDriver.initAstTranslationUnit(symtab_filepath, Global::config().has("no-warn"));
     std::unique_ptr<AstTranslationUnit> translationUnit =
 	parserDriver.parse("<stdin>", in, Global::config().has("no-warn"));

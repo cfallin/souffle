@@ -53,8 +53,6 @@ void ParserDriver::initAstTranslationUnit(std::string& symtab_filepath, bool now
 }
 
 std::unique_ptr<AstTranslationUnit> ParserDriver::parse(const std::string& f, FILE* in, bool nowarn) {
-    translationUnit = std::unique_ptr<AstTranslationUnit>(
-            new AstTranslationUnit(std::unique_ptr<AstProgram>(new AstProgram()), nowarn));
     yyscan_t scanner;
     scanner_data data;
     data.yyfilename = f.c_str();
@@ -73,8 +71,6 @@ std::unique_ptr<AstTranslationUnit> ParserDriver::parse(const std::string& f, FI
 }
 
 std::unique_ptr<AstTranslationUnit> ParserDriver::parse(const std::string& code, bool nowarn) {
-    translationUnit = std::unique_ptr<AstTranslationUnit>(
-            new AstTranslationUnit(std::unique_ptr<AstProgram>(new AstProgram()), nowarn));
     scanner_data data;
     data.yyfilename = "<in-memory>";
     yyscan_t scanner;
