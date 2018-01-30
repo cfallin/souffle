@@ -168,13 +168,17 @@ soufflepublic_HEADERS = CompiledRamOptions.h    \
                         IOSystem.h              \
                         ReadStream.h            \
                         ReadStreamCSV.h         \
+                        RecordReadStream.h      \
+                        RecordReadStreamCSV.h   \
                         SymbolMask.h            \
                         WriteStream.h           \
                         WriteStreamCSV.h        \
+                        RecordWriteStream.h     \
+                        RecordWriteStreamCSV.h  \
                         Explain.h               \
                         ExplainTree.h           \
                         ExplainProvenance.h     \
-                        ExplainProvenanceSLD.h 
+                        ExplainProvenanceSLD.h
 
 souffle_CPPFLAGS = -DPACKAGE_VERSION="\"${PACKAGE_VERSION}\""
 

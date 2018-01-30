@@ -43,6 +43,57 @@ public:
 
     ~RecordReadStreamCSV() override = default;
 
+    /**
+     * Read and return all the records
+     *
+     * Returns nullptr if no tuple was readable.
+     * @return
+     */
+    std::unique_ptr<std::map<int, std::vector<RamDomain*>>> readAllRecords() override {
+        if (file.eof()) {
+            return nullptr;
+        }
+        std::string line;
+        bool error = false;
+
+	auto records = std::unique_ptr<std::map<int, std::vector<RamDomain*>>>(
+	    new std::map<int, std::vector<RamDomain*>>());
+
+	while(true) {
+	    if (!getline(file, line)) {
+		break;
+	    }
+	    // Handle Windows line endings on non-Windows systems
+	    if (line.back() == '\r') {
+		line = line.substr(0, line.length() - 1);
+	    }
+	    ++lineNumber;
+
+	    size_t start = 0, end = 0;
+	    size_t arity = std::stoul(getNextElement(line, start, end, 0, error));
+	    RamDomain *record = new RamDomain[arity];
+	    /*RamDomain index = */std::stoll(getNextElement(line, start, end, 0, error));
+
+	    for (uint32_t column = 0; column < arity; ++column) {
+		std::string elementStr = getNextElement(line, start, end, column, error);
+		RamDomain element = std::stoll(elementStr);
+		record[column] = element;
+	    }
+
+	    if (records->find(arity) == records->end()) {
+		(*records)[arity] = std::vector<RamDomain*>();
+	    }
+	    (*records)[arity].push_back(record);
+
+
+	    if (error) {
+		throw std::invalid_argument("cannot parse records file");
+	    }
+	}
+
+        return records;
+    }
+
 protected:
     std::string getNextElement(const std::string& line, size_t& start, size_t& end, uint32_t column, bool& error) {
 	end = line.find(delimiter, start);
@@ -66,45 +117,6 @@ protected:
 	}
 	start = end + delimiter.size();
 	return element;
-    }
-
-    /**
-     * Read and return the next tuple.
-     *
-     * Returns nullptr if no tuple was readable.
-     * @return
-     */
-    std::unique_ptr<RamDomain[]> readNextRecord(size_t& arity) override {
-        if (file.eof()) {
-            return nullptr;
-        }
-        std::string line;
-        bool error = false;
-
-        if (!getline(file, line)) {
-            return nullptr;
-        }
-        // Handle Windows line endings on non-Windows systems
-        if (line.back() == '\r') {
-            line = line.substr(0, line.length() - 1);
-        }
-        ++lineNumber;
-
-        size_t start = 0, end = 0;
-	arity = std::stoul(getNextElement(line, start, end, 0, error));
-	std::unique_ptr<RamDomain[]> record(new RamDomain[arity]);
-	/*RamDomain index = */std::stoll(getNextElement(line, start, end, 0, error));
-
-        for (uint32_t column = 0; column < arity; ++column) {
-	    std::string elementStr = getNextElement(line, start, end, column, error);
-	    RamDomain element = std::stoll(elementStr);
-	    record[column] = element;
-        }
-        if (error) {
-            throw std::invalid_argument("cannot parse records file");
-        }
-
-        return record;
     }
 
     std::unique_ptr<std::string[]> readSymbolTable(int& numSymbols) override {
@@ -157,7 +169,8 @@ class RecordReadFileCSV : public RecordReadStreamCSV {
 public:
     RecordReadFileCSV(SymbolTable& symbolTable, const IODirectives& ioDirectives)
 	: RecordReadStreamCSV(fileHandle, symtabFileHandle, symbolTable, ioDirectives),
-	baseName(souffle::baseName(getFileName(ioDirectives))), fileHandle(getFileName(ioDirectives)), symtabFileHandle(getSymtabFileName(ioDirectives)) {
+	baseName(souffle::baseName(getFileName(ioDirectives))), fileHandle(getFileName(ioDirectives)),
+	symtabFileHandle(getSymtabFileName(ioDirectives)) {
         if (!ioDirectives.has("intermediate")) {
             if (!fileHandle.is_open()) {
                 throw std::invalid_argument("Cannot open fact file " + baseName + "\n");
@@ -175,9 +188,9 @@ public:
      * Returns nullptr if no tuple was readable.
      * @return
      */
-    std::unique_ptr<RamDomain[]> readNextRecord(size_t& arity) override {
+    std::unique_ptr<std::map<int, std::vector<RamDomain*>>> readAllRecords() override {
         try {
-            return RecordReadStreamCSV::readNextRecord(arity);
+            return RecordReadStreamCSV::readAllRecords();
         } catch (std::exception& e) {
             std::stringstream errorMessage;
             errorMessage << e.what();

@@ -869,7 +869,12 @@ void Interpreter::invoke(const RamProgram& prog, InterpreterEnvironment& env) co
 	try {
 	    std::unique_ptr<RecordReadStream> reader = IOSystem::getInstance()
 		.getRecordReader(env.getSymbolTable(), readIODirectives);
-	    reader->readAll();
+	    auto records = reader->readAllRecords();
+	    for (auto r_it = records->begin(); r_it != records->end(); ++r_it) {
+		for (RamDomain* record: r_it->second) {
+		    pack(record, r_it->first);
+		}
+	    }
 	} catch (std::exception& e) {
 	    std::cerr << e.what();
 	}

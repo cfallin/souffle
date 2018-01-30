@@ -15,7 +15,6 @@
 #pragma once
 
 #include "IODirectives.h"
-#include "InterpreterRecords.h"
 #include "RamTypes.h"
 #include "SymbolMask.h"
 #include "SymbolTable.h"
@@ -28,14 +27,6 @@ class RecordReadStream {
 public:
     RecordReadStream(SymbolTable& symbolTable)
             : symbolTable(symbolTable) {}
-    void readAll() {
-        auto lease = symbolTable.acquireLock();
-        (void)lease;
-	size_t arity = -1;
-	while(auto recordData = readNextRecord(arity)) {
-	    pack(recordData.get(), arity);
-	}
-    }
 
     void readIntoSymbolTable() {
 	int numSymbols = -1;
@@ -47,8 +38,9 @@ public:
 
     virtual ~RecordReadStream() = default;
 
+    virtual std::unique_ptr<std::map<int, std::vector<RamDomain*>>> readAllRecords() = 0;
+
 protected:
-    virtual std::unique_ptr<RamDomain[]> readNextRecord(size_t& arity) = 0;
     virtual std::unique_ptr<std::string[]> readSymbolTable(int& numSymbols) = 0;
     SymbolTable& symbolTable;
 };
