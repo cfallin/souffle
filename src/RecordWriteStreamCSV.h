@@ -31,7 +31,7 @@ namespace souffle {
 
 class RecordWriteStreamCSV {
 protected:
-    virtual std::string getDelimiter(const IODirectives& ioDirectives) const {
+    virtual std::string getDelimiterInternal(const IODirectives& ioDirectives) const {
         if (ioDirectives.has("delimiter")) {
             return ioDirectives.get("delimiter");
         }
@@ -42,7 +42,7 @@ protected:
 class RecordWriteFileCSV : public RecordWriteStreamCSV, public RecordWriteStream {
 public:
     RecordWriteFileCSV(const SymbolTable& symbolTable, const IODirectives& ioDirectives)
-            : RecordWriteStream(symbolTable), delimiter(getDelimiter(ioDirectives)),
+            : RecordWriteStream(symbolTable), delimiter(getDelimiterInternal(ioDirectives)),
 	file(ioDirectives.getFileName()), symtab_file(ioDirectives.get("symtabfilename")) {
         if (ioDirectives.has("headers") && ioDirectives.get("headers") == "true") {
             file << ioDirectives.get("attributeNames") << std::endl;
@@ -50,6 +50,13 @@ public:
     }
 
     ~RecordWriteFileCSV() override = default;
+
+    const std::string& getDelimiter() const { return delimiter; }
+
+    void writeNextLine(std::string& line) override {
+	file << line;
+	file << "\n";
+    }
 
 protected:
     void writeNext(int ind, const std::vector<RamDomain>& record) override {
@@ -74,7 +81,7 @@ protected:
 class RecordWriteGZipFileCSV : public RecordWriteStreamCSV, public RecordWriteStream {
 public:
     RecordWriteGZipFileCSV(const SymbolTable& symbolTable, const IODirectives& ioDirectives)
-            : RecordWriteStream(symbolTable), delimiter(getDelimiter(ioDirectives)),
+            : RecordWriteStream(symbolTable), delimiter(getDelimiterInternal(ioDirectives)),
               file(ioDirectives.getFileName()) {
         if (ioDirectives.has("headers") && ioDirectives.get("headers") == "true") {
             file << ioDirectives.get("attributeNames") << std::endl;
@@ -95,7 +102,7 @@ protected:
  class RecordWriteCoutCSV : public RecordWriteStreamCSV, public RecordWriteStream {
 public:
     RecordWriteCoutCSV(const SymbolTable& symbolTable, const IODirectives& ioDirectives)
-            : RecordWriteStream(symbolTable), delimiter(getDelimiter(ioDirectives)) {
+            : RecordWriteStream(symbolTable), delimiter(getDelimiterInternal(ioDirectives)) {
         std::cout << "---------------\n" << ioDirectives.getRelationName();
         if (ioDirectives.has("headers") && ioDirectives.get("headers") == "true") {
             std::cout << "\n" << ioDirectives.get("attributeNames");
@@ -120,6 +127,13 @@ protected:
     void writeSymbolTable() override {
 	symbolTable.printRaw(std::cout);
     }
+
+    void writeNextLine(std::string& line) override {
+	std::cout << line;
+	std::cout << "\n";
+    }
+
+    const std::string& getDelimiter() const { return delimiter; }
 
     const std::string delimiter;
 };

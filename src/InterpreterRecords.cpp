@@ -60,8 +60,19 @@ public:
     }
 
     static void printRecords(const std::unique_ptr<RecordWriteStream>& writer) {
+	std::string delimiter = writer->getDelimiter();
 	for (auto it = maps.begin(); it != maps.end(); ++it) {
-	    writer->writeAll(it->second.i2r);
+	    const std::vector<std::vector<RamDomain>> records = it->second.i2r;
+	    for (size_t idx = 0; idx < records.size(); ++idx) {
+		std::vector<RamDomain> record = records[idx];
+		std::string str = std::to_string(idx) + delimiter + std::to_string(record.size()) + delimiter;
+		for (size_t i = 0; i < record.size(); ++i) {
+		    str += std::to_string(record[i]);
+		    if (i < record.size() - 1) str += delimiter;;
+		}
+
+		writer->writeNextLine(str);
+	    }
 	}
 	writer->writeSymbolTable();
     }

@@ -37,6 +37,10 @@ public:
 
     virtual void writeSymbolTable() = 0;
 
+    virtual void writeNextLine(std::string& line) = 0;
+
+    virtual const std::string& getDelimiter() const = 0;
+
     virtual ~RecordWriteStream() = default;
 
 protected:

@@ -17,6 +17,7 @@
 #pragma once
 
 #include "CompiledRamTuple.h"
+#include "RecordWriteStream.h"
 #include "ParallelUtils.h"
 
 #include <limits>
@@ -53,6 +54,9 @@ RamDomain getNull();
  */
 template <typename TupleType>
 bool isNull(RamDomain ref);
+
+template <typename Tuple>
+void printRecords(const std::unique_ptr<RecordWriteStream>& writer);
 
 // ----------------------------------------------------------------------------
 //                              Definitions
@@ -113,6 +117,16 @@ private:
     }
 
 public:
+    void printRecords(const std::unique_ptr<RecordWriteStream>& writer) {
+	std::string delimiter = writer->getDelimiter();
+	for (auto it = r2i.begin(); it != r2i.end(); ++it) {
+	    tuple_type tuple = it->first;
+	    RamDomain idx = it->second;
+	    std::string str = std::to_string(idx) + delimiter + tuple.printRaw(delimiter);
+	    writer->writeNextLine(str);
+	}
+	writer->writeSymbolTable();
+    }
 
     /**
      * Packs the given tuple -- and may create a new reference if necessary.
@@ -178,6 +192,11 @@ RamDomain pack(const Tuple& tuple) {
 template <typename Tuple>
 const Tuple& unpack(RamDomain ref) {
     return detail::getRecordMap<Tuple>().unpack(ref);
+}
+
+template <typename Tuple>
+void printRecords(const std::unique_ptr<RecordWriteStream>& writer) {
+    return detail::getRecordMap<Tuple>().printRecords(writer);
 }
 
 }  // end of namespace souffle

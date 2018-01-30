@@ -70,9 +70,9 @@ public:
 	    ++lineNumber;
 
 	    size_t start = 0, end = 0;
+	    /*RamDomain index = */std::stoll(getNextElement(line, start, end, 0, error));
 	    size_t arity = std::stoul(getNextElement(line, start, end, 0, error));
 	    RamDomain *record = new RamDomain[arity];
-	    /*RamDomain index = */std::stoll(getNextElement(line, start, end, 0, error));
 
 	    for (uint32_t column = 0; column < arity; ++column) {
 		std::string elementStr = getNextElement(line, start, end, column, error);

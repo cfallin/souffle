@@ -264,6 +264,8 @@ class Printer : public RamVisitor<void, std::ostream&> {
     };
 
 public:
+    std::set<int> recordArities;
+
     Printer(const IndexMap& /*indexMap*/) {
         rec = [&](std::ostream& out, const RamNode* node) { this->visit(*node, out); };
     }
@@ -1181,6 +1183,7 @@ public:
     // -- records --
 
     void visitPack(const RamPack& pack, std::ostream& out) override {
+	recordArities.insert(pack.getValues().size());
         PRINT_BEGIN_COMMENT(out);
         out << "pack("
             << "ram::Tuple<RamDomain," << pack.getValues().size() << ">({" << join(pack.getValues(), ",", rec)
@@ -1226,9 +1229,11 @@ private:
     }
 };
 
-void genCode(std::ostream& out, const RamStatement& stmt, const IndexMap& indices) {
+std::set<int> genCode(std::ostream& out, const RamStatement& stmt, const IndexMap& indices) {
     // use printer
-    Printer(indices).visit(stmt, out);
+    Printer printer(indices);
+    printer.visit(stmt, out);
+    return printer.recordArities;
 }
 }  // namespace
 
@@ -1457,14 +1462,16 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
         os << "#endif\n\n";
     }
 
+    std::set<int> recordArities;
+
     // add actual program body
     os << "// -- query evaluation --\n";
     if (Global::config().has("profile")) {
         os << "std::ofstream profile(profiling_fname);\n";
         os << "profile << \"@start-debug\\n\";\n";
-        genCode(os, *(prog.getMain()), indices);
+        recordArities = genCode(os, *(prog.getMain()), indices);
     } else {
-        genCode(os, *(prog.getMain()), indices);
+        recordArities = genCode(os, *(prog.getMain()), indices);
     }
     // add code printing hint statistics
     os << "\n// -- relation hint statistics --\n";
@@ -1516,6 +1523,33 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
             os << "}";
         }
     });
+    os << "}\n";  // end of printAll() method
+
+    // Print record tables and symtab
+    // issue printAllRecords method
+    os << "public:\n";
+    os << "void printAllRecords(std::string outputDirectory = \".\") {\n";
+    os << "std::string recordsOutFilepath = \"" + Global::getRecordOutFilepath() + "\";\n";
+    os << "std::string symtabOutFilepath = \"" + Global::getSymtabOutFilepath() + "\";\n";
+    os << "std::map<std::string, std::string> writeIODirectivesMap = {\n";
+    os << "{\"IO\", \"file\"},\n";
+    os << "{\"filename\", recordsOutFilepath},\n";
+    os << "{\"symtabfilename\", symtabOutFilepath},\n";
+    os << "{\"name\", \"souffle_records\"}\n";
+    os << "};\n";
+    os << "IODirectives writeIODirectives(writeIODirectivesMap);\n";
+    os << "try {\n";
+
+    for (int arity: recordArities) {
+	os << "std::cerr << \"Printing records\\n\";";
+	os << "printRecords<ram::Tuple<RamDomain," << arity << ">>(IOSystem::getInstance()\n";
+	os << ".getRecordWriter(symTable, writeIODirectives));\n";
+    }
+
+    os << "} catch (std::exception& e) {\n";
+    os << "std::cerr << e.what();\n";
+    os << "exit(1);\n";
+    os << "}\n";
     os << "}\n";  // end of printAll() method
 
     // issue loadAll method
@@ -1669,6 +1703,7 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
     }
 
     os << "obj.runAll(opt.getInputFileDir(), opt.getOutputFileDir());\n";
+    os << "obj.printAllRecords(opt.getOutputFileDir());\n";
     if (Global::config().get("provenance") == "1") {
         os << "explain(obj, true, false);\n";
     } else if (Global::config().get("provenance") == "2") {
