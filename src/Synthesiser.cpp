@@ -264,8 +264,6 @@ class Printer : public RamVisitor<void, std::ostream&> {
     };
 
 public:
-    std::set<int> recordArities;
-
     Printer(const IndexMap& /*indexMap*/) {
         rec = [&](std::ostream& out, const RamNode* node) { this->visit(*node, out); };
     }
@@ -1183,7 +1181,6 @@ public:
     // -- records --
 
     void visitPack(const RamPack& pack, std::ostream& out) override {
-	recordArities.insert(pack.getValues().size());
         PRINT_BEGIN_COMMENT(out);
         out << "pack("
             << "ram::Tuple<RamDomain," << pack.getValues().size() << ">({" << join(pack.getValues(), ",", rec)
@@ -1229,11 +1226,9 @@ private:
     }
 };
 
-std::set<int> genCode(std::ostream& out, const RamStatement& stmt, const IndexMap& indices) {
+void genCode(std::ostream& out, const RamStatement& stmt, const IndexMap& indices) {
     // use printer
-    Printer printer(indices);
-    printer.visit(stmt, out);
-    return printer.recordArities;
+    Printer(indices).visit(stmt, out);
 }
 }  // namespace
 
@@ -1254,6 +1249,14 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
         }
         if (const RamNotExists* ne = dynamic_cast<const RamNotExists*>(&node)) {
             indices[ne->getRelation()].addSearch(ne->getKey());
+        }
+    });
+
+    // compute the set of all record arities
+    std::set<int> recArities;
+    visitDepthFirst(prog, [&](const RamNode& node) {
+        if (const RamPack* pack = dynamic_cast<const RamPack*>(&node)) {
+            recArities.insert(pack->getValues().size());
         }
     });
 
@@ -1425,8 +1428,22 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
     os << "{\n";
     os << registerRel;
 
+    os << "// -- initialize symbol table --\n";
+    // Read symbol table
+    os << "std::string symtab_filepath = \"" << Global::Global::getSymtabInFilepath() + "\";\n";
+    os << "if (fileExists(symtab_filepath)) {\n";
+	os << "std::map<std::string, std::string> readIODirectivesMap = {\n";
+	os << "{\"IO\", \"file\"},\n";
+	    os << "{\"filename\", symtab_filepath},\n";
+	os << "{\"symtabfilename\", symtab_filepath},\n";
+	    os << "{\"name\", \"souffle_records\"}\n";
+	os << "};\n";
+	os << "IODirectives readIODirectives(readIODirectivesMap);\n";
+	os << "std::unique_ptr<RecordReadStream> reader = IOSystem::getInstance()\n";
+	    os << ".getRecordReader(symTable, readIODirectives);\n";
+	os << "reader->readIntoSymbolTable();\n";
+    os << "}\n";
     if (symTable.size() > 0) {
-        os << "// -- initialize symbol table --\n";
         os << "static const char *symbols[]={\n";
         for (size_t i = 0; i < symTable.size(); i++) {
             os << "\tR\"(" << symTable.resolve(i) << ")\",\n";
@@ -1435,6 +1452,40 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
         os << "symTable.insert(symbols," << symTable.size() << ");\n";
         os << "\n";
     }
+
+    os << "std::string recordsInFilepath = \"" << Global::getRecordInFilepath() << "\";\n";
+    os << "if (fileExists(recordsInFilepath)) {\n";
+    os << "std::map<std::string, std::string> readIODirectivesMap = {\n";
+    os << "{\"IO\", \"file\"},\n";
+    os << "{\"filename\", recordsInFilepath},\n";
+    os << "{\"name\", \"souffle_records\"}\n";
+    os << "};\n";
+    os << "IODirectives readIODirectives(readIODirectivesMap);\n";
+    os << "try {\n";
+    os << "std::unique_ptr<RecordReadStream> reader = IOSystem::getInstance()\n";
+    os << ".getRecordReader(symTable, readIODirectives);\n";
+    os << "auto records = reader->readAllRecords();\n";
+    os << "for (auto r_it = records->begin(); r_it != records->end(); ++r_it) {\n";
+    os << "for (RamDomain* record: r_it->second) {\n";
+    os << "switch(r_it->first) {";
+    for (int arity: recArities) {
+	os << "case " << arity << ": \n";
+	os << "ram::Tuple<RamDomain, " << arity << "> tuple" << arity << ";\n";
+	for (int i = 0; i < arity; ++i) {
+	    os << "tuple" << arity << "["<< i << "] = record[" << i << "];\n";
+	}
+	os << "pack<ram::Tuple<RamDomain, " << arity << ">>(tuple" << arity << ");\n";
+	os << "break;\n";
+    }
+    os << "default: ";
+    os << "std::cerr << \"Did not find records of arity \" << r_it->first << \" in the source code.\\n\";\n";
+    os << "}\n";
+    os << "}\n";
+    os << "}\n";
+    os << "} catch (std::exception& e) {\n";
+    os << "std::cerr << e.what();\n";
+    os << "}\n";
+    os << "}\n";
 
     os << "}\n";
 
@@ -1462,16 +1513,14 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
         os << "#endif\n\n";
     }
 
-    std::set<int> recordArities;
-
     // add actual program body
     os << "// -- query evaluation --\n";
     if (Global::config().has("profile")) {
         os << "std::ofstream profile(profiling_fname);\n";
         os << "profile << \"@start-debug\\n\";\n";
-        recordArities = genCode(os, *(prog.getMain()), indices);
+        genCode(os, *(prog.getMain()), indices);
     } else {
-        recordArities = genCode(os, *(prog.getMain()), indices);
+        genCode(os, *(prog.getMain()), indices);
     }
     // add code printing hint statistics
     os << "\n// -- relation hint statistics --\n";
@@ -1540,8 +1589,7 @@ std::string Synthesiser::generateCode(const SymbolTable& symTable, const RamProg
     os << "IODirectives writeIODirectives(writeIODirectivesMap);\n";
     os << "try {\n";
 
-    for (int arity: recordArities) {
-	os << "std::cerr << \"Printing records\\n\";";
+    for (int arity: recArities) {
 	os << "printRecords<ram::Tuple<RamDomain," << arity << ">>(IOSystem::getInstance()\n";
 	os << ".getRecordWriter(symTable, writeIODirectives));\n";
     }
