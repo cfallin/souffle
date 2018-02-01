@@ -119,20 +119,17 @@ private:
 public:
     void printRecords(const std::unique_ptr<RecordWriteStream>& writer) {
 	std::string delimiter = writer->getDelimiter();
-	for (auto it = r2i.begin(); it != r2i.end(); ++it) {
-	    tuple_type tuple = it->first;
-	    RamDomain idx = it->second;
-	    std::string str = std::to_string(idx) + delimiter + tuple.printRaw(delimiter);
+	for (int i = 0; i < r2i.size(); ++i) {
+	    tuple_type tuple = (*(block_ref(i)))[i % BLOCK_SIZE];
+	    std::string str = std::to_string(i) + delimiter + tuple.printRaw(delimiter);
 	    writer->writeNextLine(str);
 	}
     }
 
     void printRecords() {
-	std::string delimiter = "\t";
-	for (auto it = r2i.begin(); it != r2i.end(); ++it) {
-	    tuple_type tuple = it->first;
-	    RamDomain idx = it->second;
-	    std::string str = std::to_string(idx) + delimiter + tuple.printRaw(delimiter);
+	for (int i = 0; i < r2i.size(); ++i) {
+	    tuple_type tuple = (*(block_ref(i)))[i % BLOCK_SIZE];
+	    std::string str = std::to_string(i) + "\t" + tuple.printRaw("\t");
 	    std::cout << str << "\n";
 	}
     }
