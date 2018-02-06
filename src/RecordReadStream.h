@@ -31,9 +31,7 @@ public:
     void readIntoSymbolTable() {
 	int numSymbols = -1;
 	std::unique_ptr<std::string[]> symtabData = readSymbolTable(numSymbols);
-	for (int i = 0; i < numSymbols; ++i) {
-	    symbolTable.insert(symtabData[i].c_str());
-	}
+	symbolTable.insert(std::move(symtabData), numSymbols);
     }
 
     virtual ~RecordReadStream() = default;
