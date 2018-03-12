@@ -156,6 +156,7 @@ int main(int argc, char** argv) {
                             {"", 0, "", "", false,
                                     ""},  // main option, the datalog program itself, key is always empty
                             {"fact-dir", 'F', "DIR", ".", false, "Specify directory for fact files."},
+			    {"combine-search-path", 'S', "DIR:DIR:...", "", false, "Specify paths in which to find fact files to combine, separated by ':'"},
                             {"include-dir", 'I', "DIR", ".", true, "Specify directory for include files."},
                             {"output-dir", 'D', "DIR", ".", false,
                                     "Specify directory for output files (if <DIR> is -, stdout is used)."},

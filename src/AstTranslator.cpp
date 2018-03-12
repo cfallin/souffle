@@ -54,6 +54,7 @@ IODirectives getInputIODirectives(
         const AstRelation* rel, std::string filePath = std::string(), std::string fileExt = std::string()) {
     const std::string inputFilePath = (filePath.empty()) ? Global::config().get("fact-dir") : filePath;
     const std::string inputFileExt = (fileExt.empty()) ? ".facts" : fileExt;
+    const std::string inputCombineSearchPath = Global::config().get("combine-search-path");
 
     IODirectives directives;
     for (const auto& current : rel->getIODirectives()) {
@@ -80,6 +81,9 @@ IODirectives getInputIODirectives(
         // if filename is not an absolute path, concat with cmd line facts directory
         if (directives.getIOType() == "file" && directives.getFileName().front() != '/') {
             directives.setFileName(inputFilePath + "/" + directives.getFileName());
+        }
+        if (directives.getIOType() == "file" && !inputCombineSearchPath.empty()) {
+            directives.set("combineSearchPath", inputCombineSearchPath);
         }
     }
 

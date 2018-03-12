@@ -112,8 +112,8 @@ private:
         registerWriteStreamFactory(std::make_shared<WriteFileCSVFactory>());
         registerWriteStreamFactory(std::make_shared<WriteCoutCSVFactory>());
         registerRecordReadStreamFactory(std::make_shared<RecordReadFileCSVFactory>());
-	registerRecordWriteStreamFactory(std::make_shared<RecordWriteCoutCSVFactory>());
-	registerRecordWriteStreamFactory(std::make_shared<RecordWriteFileCSVFactory>());
+        registerRecordWriteStreamFactory(std::make_shared<RecordWriteCoutCSVFactory>());
+        registerRecordWriteStreamFactory(std::make_shared<RecordWriteFileCSVFactory>());
 #ifdef USE_SQLITE
         registerReadStreamFactory(std::make_shared<ReadSQLiteFactory>());
         registerWriteStreamFactory(std::make_shared<WriteSQLiteFactory>());

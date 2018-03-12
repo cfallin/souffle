@@ -21,11 +21,7 @@
 #include "SymbolTable.h"
 #include "Util.h"
 
-#ifdef USE_LIBZ
-#include "gzfstream.h"
-#else
 #include <fstream>
-#endif
 
 #include <map>
 #include <memory>
@@ -37,10 +33,10 @@ namespace souffle {
 
 class ReadStreamCSV : public ReadStream {
 public:
-    ReadStreamCSV(std::istream& file, const SymbolMask& symbolMask, SymbolTable& symbolTable,
+    ReadStreamCSV(std::vector<std::istream*> files, const SymbolMask& symbolMask, SymbolTable& symbolTable,
             const IODirectives& ioDirectives, const bool provenance = false)
             : ReadStream(symbolMask, symbolTable, provenance), delimiter(getDelimiter(ioDirectives)),
-              file(file), lineNumber(0), inputMap(getInputColumnMap(ioDirectives, symbolMask.getArity())) {
+              files(files), fileIdx(0), lineNumber(0), inputMap(getInputColumnMap(ioDirectives, symbolMask.getArity())) {
         while (this->inputMap.size() < symbolMask.getArity()) {
             int size = this->inputMap.size();
             this->inputMap[size] = size;
@@ -57,14 +53,20 @@ protected:
      * @return
      */
     std::unique_ptr<RamDomain[]> readNextTuple() override {
-        if (file.eof()) {
-            return nullptr;
+	std::istream* file = files[fileIdx];
+        if (file->eof()) {
+	    // Try next file.
+	    fileIdx++;
+	    if (fileIdx >= files.size()) {
+		return nullptr;
+	    }
+	    file = files[fileIdx];
         }
         std::string line;
         std::unique_ptr<RamDomain[]> tuple = std::make_unique<RamDomain[]>(symbolMask.getArity());
         bool error = false;
 
-        if (!getline(file, line)) {
+        if (!getline(*file, line)) {
             return nullptr;
         }
         // Handle Windows line endings on non-Windows systems
@@ -179,7 +181,8 @@ protected:
     }
 
     const std::string delimiter;
-    std::istream& file;
+    std::vector<std::istream*> files;
+    size_t fileIdx;
     size_t lineNumber;
     std::map<int, int> inputMap;
 };
@@ -188,19 +191,8 @@ class ReadFileCSV : public ReadStreamCSV {
 public:
     ReadFileCSV(const SymbolMask& symbolMask, SymbolTable& symbolTable, const IODirectives& ioDirectives,
             const bool provenance = false)
-            : ReadStreamCSV(fileHandle, symbolMask, symbolTable, ioDirectives, provenance),
-              baseName(souffle::baseName(getFileName(ioDirectives))), fileHandle(getFileName(ioDirectives)) {
-        if (!ioDirectives.has("intermediate")) {
-            if (!fileHandle.is_open()) {
-                throw std::invalid_argument("Cannot open fact file " + baseName + "\n");
-            }
-            // Strip headers if we're using them
-            if (ioDirectives.has("headers") && ioDirectives.get("headers") == "true") {
-                std::string line;
-                getline(file, line);
-            }
-        }
-    }
+            : ReadStreamCSV(fileHandlePtrs, symbolMask, symbolTable, ioDirectives, provenance),
+              fileHandles(getFileHandles(ioDirectives)), fileHandlePtrs(getFileHandlePtrs(fileHandles)) {}
     /**
      * Read and return the next tuple.
      *
@@ -213,7 +205,7 @@ public:
         } catch (std::exception& e) {
             std::stringstream errorMessage;
             errorMessage << e.what();
-            errorMessage << "cannot parse fact file " << baseName << "!\n";
+            errorMessage << "cannot parse fact file!\n";
             throw std::invalid_argument(errorMessage.str());
         }
     }
@@ -221,26 +213,57 @@ public:
     ~ReadFileCSV() override = default;
 
 protected:
-    std::string getFileName(const IODirectives& ioDirectives) const {
-        if (ioDirectives.has("filename")) {
-            return ioDirectives.get("filename");
-        }
-        return ioDirectives.getRelationName() + ".facts";
+    std::vector<std::ifstream> getFileHandles(const IODirectives& ioDirectives) const {
+	if (ioDirectives.has("combineSearchPath")) {
+	    std::vector<std::ifstream> ret;
+	    std::string path = ioDirectives.get("combineSearchPath");
+	    while (path.size() > 0) {
+		int sep = path.find(':');
+		std::string part;
+		if (sep == -1) {
+		    part = path;
+		    path = "";
+		} else {
+		    part = path.substr(0, sep);
+		    path = path.substr(sep + 1);
+		}
+		std::string thisFile = part + "/" + ioDirectives.getRelationName() + ".facts";
+		std::ifstream i(thisFile);
+		if (i.good()) {
+		    ret.push_back(std::move(i));
+		}
+	    }
+	    return ret;
+	} else if (ioDirectives.has("filename")) {
+	    std::vector<std::ifstream> ret;
+	    ret.push_back(std::ifstream(ioDirectives.get("filename")));
+	    return ret;
+        } else {
+	    std::vector<std::ifstream> ret;
+	    ret.push_back(std::ifstream(ioDirectives.getRelationName() + ".facts"));
+	    return ret;
+	}
     }
-    std::string baseName;
-#ifdef USE_LIBZ
-    gzfstream::igzfstream fileHandle;
-#else
-    std::ifstream fileHandle;
-#endif
+
+    std::vector<std::istream*> getFileHandlePtrs(std::vector<std::ifstream>& v) const {
+	std::vector<std::istream*> ret;
+	for (auto& i : v) {
+	    ret.push_back(&i);
+	}
+	return ret;
+    }
+    
+    std::vector<std::ifstream> fileHandles;
+    std::vector<std::istream*> fileHandlePtrs;
 };
 
 class ReadCinCSVFactory : public ReadStreamFactory {
 public:
     std::unique_ptr<ReadStream> getReader(const SymbolMask& symbolMask, SymbolTable& symbolTable,
             const IODirectives& ioDirectives, const bool provenance) override {
+	std::vector<std::istream*> ifstreams = { &std::cin };
         return std::unique_ptr<ReadStreamCSV>(
-                new ReadStreamCSV(std::cin, symbolMask, symbolTable, ioDirectives, provenance));
+	    new ReadStreamCSV(ifstreams, symbolMask, symbolTable, ioDirectives, provenance));
     }
     const std::string& getName() const override {
         static const std::string name = "stdin";
