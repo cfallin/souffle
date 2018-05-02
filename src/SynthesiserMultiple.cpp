@@ -241,23 +241,24 @@ class CodeEmitter : public RamVisitor<int, int> {
 #endif
 
     std::function<void(std::ostream&, const RamNode*)> rec;
-
     int indentLevel = 0;
     int fileSize = 0;
-    int fileCounter = 0;
-public:
+    static int fileCounter;
     std::string baseFilename;
     std::string mainFilename;
     std::string classname;
-    std::ofstream* curr_os;
-    static const int maxFileSize = 10;
+    std::ostringstream* curr_os;
+    std::unordered_set<std::string> referencedRelations;
+    std::unordered_map<std::string, std::string>* relTypes;
 
+public:
+    static const int maxFileSize = 1;
     struct printer {
         CodeEmitter& p;
         const RamNode& node;
-	std::ofstream* internal_curr_os;
+	std::ostream* internal_curr_os;
 
-        printer(CodeEmitter& p, const RamNode& n, std::ofstream* curr_os)
+        printer(CodeEmitter& p, const RamNode& n, std::ostream* curr_os)
 	    : p(p), node(n), internal_curr_os(curr_os) {}
 
         printer(const printer& other) = default;
@@ -268,70 +269,83 @@ public:
         }
     };
 
-    CodeEmitter(std::string classname, std::string mainFile, std::string baseFile)
-	: baseFilename(baseFile), mainFilename(mainFile), classname(classname) {
+    CodeEmitter(std::string classname, std::string mainFile, std::string baseFile,
+		std::unordered_map<std::string, std::string>* relTypes)
+	: baseFilename(baseFile), mainFilename(mainFile), classname(classname), relTypes(relTypes) {
         rec = [&](std::ostream& out, const RamNode* node) { this->visit(*node, 0); };
-	// updateFileStream();
 	SplitFunction(true);
     }
 
     void SplitFunction(bool init = false) {
-	std::ofstream* stream = curr_os;
-	std::string newFunction = "runFunction" + std::to_string(fileCounter);
-	if (!init) {
-	    *stream << "this->" << newFunction << "<performIO>(inputDirectory, outputDirectory);\n";
-	    *stream << "\n}\n";
-	    *stream << "template void " << classname << "::runFunction" <<
-		fileCounter - 1<< "<true>(std::string inputDirectory, std::string outputDirectory);\n";
-	    *stream << "template void " << classname << "::runFunction" <<
-		fileCounter - 1<< "<false>(std::string inputDirectory, std::string outputDirectory);\n";
-	    *stream << "\n}\n";
-	}
-	stream = updateFileStream(init);
-
-	*stream << "#include \"souffle/CompiledSouffle.h\"\n\n";
-	*stream << "#include \"" << mainFilename << "\"\n\n";
-	if (Global::config().has("provenance")) {
-	    *stream << "#include \"souffle/Explain.h\"\n";
-	    *stream << "#include \"<ncurses.h>\"\n";
-	}
-	*stream << "namespace souffle {\n";
-	*stream << "using namespace ram;\n";
-	*stream << "template <bool performIO> void " << classname << "::"
-		<< newFunction << "(std::string inputDirectory = \".\", "
-		<< "std::string outputDirectory = \".\") {\n";
-	fileSize = 0;
-	indentLevel = 0;
+	if (!init) cleanUp(false);
+	curr_os = new std::ostringstream();
     }
 
     std::string nextFileName() {
-	return baseFilename + "_run" + std::to_string(fileCounter++) + ".cpp";
+	return baseFilename + "_run" + std::to_string(++fileCounter) + ".cpp";
     }
 
-    std::ofstream* updateFileStream(bool init) {
-	if (!init) {
-	    curr_os->flush();
-	    curr_os->close();
-	    delete curr_os;
+    void cleanUp(bool last) {
+	std::string filename = nextFileName();
+	std::ofstream ofs(filename);
+	ofs << "#include \"souffle/CompiledSouffle.h\"\n\n";
+	// ofs << "#include \"" << mainFilename << "\"\n\n";
+	if (Global::config().has("provenance")) {
+	    ofs << "#include \"souffle/Explain.h\"\n";
+	    ofs << "#include \"<ncurses.h>\"\n\n";
 	}
-        std::string filename = nextFileName();
-	curr_os = new std::ofstream(filename);
-	return curr_os;
-    }
 
-    void cleanUp() {
-	*curr_os << "}\n";
-	*curr_os << "template void " << classname << "::runFunction" <<
-	    fileCounter - 1 << "<true>(std::string inputDirectory, std::string outputDirectory);\n";
-	*curr_os << "template void " << classname << "::runFunction" <<
-	    fileCounter - 1 << "<false>(std::string inputDirectory, std::string outputDirectory);\n";
-	*curr_os << "}\n";
+	ofs << "namespace souffle {\n";
+	ofs << "using namespace ram;\n";
+	std::string newFunction = "runFunction" + std::to_string(fileCounter + 1);
+	if (!last)
+	    ofs << "template <bool performIO> void " << newFunction
+		<< "(std::string inputDirectory = \".\", "
+		<< "std::string outputDirectory = \".\");";
+
+	// Extern definitions for relation variables
+	for (auto it = referencedRelations.begin(); it != referencedRelations.end(); ++it)
+	    ofs << "extern " << relTypes->at(*it) << "* " << *it << ";\n";
+	ofs << "extern SymbolTable symTable;\n";
+	ofs << "inline bool regex_wrapper(const char *pattern, const char *text);";
+	ofs << "inline bool substr_wrapper(const char *str, size_t idx, size_t len);";
+
+	referencedRelations.clear();
+
+	ofs << "\n";
+	std::string currFunction = "runFunction" + std::to_string(fileCounter);
+	// ofs << "template <bool performIO> void " << classname << "::" << currFunction
+	    // << "(std::string inputDirectory, "
+	    // << "std::string outputDirectory) {\n";
+	ofs << "template <bool performIO> void " << currFunction
+	    << "(std::string inputDirectory = \".\", "
+	    << "std::string outputDirectory = \".\") {\n";
+	// Dump the function body
 	curr_os->flush();
-	curr_os->close();
+	ofs << curr_os->str();
+
+	if (!last)
+	    ofs << newFunction << "<performIO>(inputDirectory, outputDirectory);\n";
+
+	ofs << "\n}\n";
+	ofs << "template void runFunction" << fileCounter <<
+	    "<true>(std::string inputDirectory, std::string outputDirectory);\n";
+	// ofs << "template void " << classname << "::runFunction" <<
+	    // fileCounter << "<true>(std::string inputDirectory, std::string outputDirectory);\n";
+	ofs << "\n}\n";
+
+	ofs.flush();
+	ofs.close();
 	delete curr_os;
     }
 
 public:
+    inline const std::string getRelationNameInternal(const RamRelation& rel) {
+	std::string relName = getRelationName(rel);
+	referencedRelations.insert(relName);
+	return relName;
+    }
+
     // -- relation statements --
 
     int visitCreate(const RamCreate& /*create*/, int) override {
@@ -344,7 +358,7 @@ public:
     int visitFact(const RamFact& fact, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
-        out << getRelationName(fact.getRelation()) << "->"
+        out << getRelationNameInternal(fact.getRelation()) << "->"
             << "insert(" << join(fact.getValues(), ",", rec) << ");\n";
         PRINT_END_COMMENT(out);
         return fileCounter;
@@ -367,7 +381,7 @@ public:
         out << "SymbolMask({" << load.getRelation().getSymbolMask() << "})";
         out << ", symTable, ioDirectives";
         out << ", " << Global::config().has("provenance");
-        out << ")->readAll(*" << getRelationName(load.getRelation());
+        out << ")->readAll(*" << getRelationNameInternal(load.getRelation());
         out << ");\n";
         out << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
         out << "}\n";
@@ -396,7 +410,7 @@ public:
             out << "SymbolMask({" << store.getRelation().getSymbolMask() << "})";
             out << ", symTable, ioDirectives";
             out << ", " << Global::config().has("provenance");
-            out << ")->writeAll(*" << getRelationName(store.getRelation()) << ");\n";
+            out << ")->writeAll(*" << getRelationNameInternal(store.getRelation()) << ");\n";
             out << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
         }
         out << "}\n";
@@ -421,9 +435,9 @@ public:
         visitDepthFirst(insert, [&](const RamScan& scan) { input_relations.insert(scan.getRelation()); });
         if (!input_relations.empty()) {
             out << "if (" << join(input_relations, "&&", [&](std::ostream& out, const RamRelation& rel) {
-                out << "!" << getRelationName(rel) << "->"
-                    << "empty()";
-            }) << ") ";
+		    out << "!" << getRelationNameInternal(rel) << "->"
+			<< "empty()";
+		}) << ") ";
         }
 
         // outline each search operation to improve compilation time
@@ -447,7 +461,7 @@ public:
                 parallel = true;
 
                 // partition outermost relation
-                out << "auto part = " << getRelationName(scan->getRelation()) << "->"
+                out << "auto part = " << getRelationNameInternal(scan->getRelation()) << "->"
                     << "partition();\n";
 
                 // build a parallel block around this loop nest
@@ -464,7 +478,7 @@ public:
         for (const RamRelation& rel : getReferencedRelations(insert.getOperation())) {
             // TODO (#467): this causes bugs for subprogram compilation for record types if artificial
             // dependencies are introduces in the precedence graph
-            out << "CREATE_OP_CONTEXT(" << getOpContextName(rel) << "," << getRelationName(rel) << "->"
+            out << "CREATE_OP_CONTEXT(" << getOpContextName(rel) << "," << getRelationNameInternal(rel) << "->"
                 << "createContext());\n";
         }
 
@@ -522,13 +536,13 @@ public:
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         if (merge.getTargetRelation().isEqRel()) {
-            out << getRelationName(merge.getSourceRelation()) << "->"
+            out << getRelationNameInternal(merge.getSourceRelation()) << "->"
                 << "extend("
-                << "*" << getRelationName(merge.getTargetRelation()) << ");\n";
+                << "*" << getRelationNameInternal(merge.getTargetRelation()) << ");\n";
         }
-        out << getRelationName(merge.getTargetRelation()) << "->"
+        out << getRelationNameInternal(merge.getTargetRelation()) << "->"
             << "insertAll("
-            << "*" << getRelationName(merge.getSourceRelation()) << ");\n";
+            << "*" << getRelationNameInternal(merge.getSourceRelation()) << ");\n";
         PRINT_END_COMMENT(out);
         return fileCounter;
     }
@@ -536,7 +550,7 @@ public:
     int visitClear(const RamClear& clear, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
-        out << getRelationName(clear.getRelation()) << "->"
+        out << getRelationNameInternal(clear.getRelation()) << "->"
             << "purge();\n";
         PRINT_END_COMMENT(out);
         return fileCounter;
@@ -546,7 +560,7 @@ public:
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "if (!isHintsProfilingEnabled() && (performIO || " << drop.getRelation().isTemp() << ")) ";
-        out << getRelationName(drop.getRelation()) << "->"
+        out << getRelationNameInternal(drop.getRelation()) << "->"
             << "purge();\n";
         PRINT_END_COMMENT(out);
         return fileCounter;
@@ -559,7 +573,7 @@ public:
         out << "{ auto lease = getOutputLock().acquire(); \n";
         out << "(void)lease;\n";
         out << "std::cout << R\"(" << print.getMessage() << ")\" <<  ";
-        out << getRelationName(print.getRelation()) << "->"
+        out << getRelationNameInternal(print.getRelation()) << "->"
             << "size() << std::endl;\n";
         out << "}";
         out << "}\n";
@@ -574,7 +588,7 @@ public:
         out << "{ auto lease = getOutputLock().acquire(); \n";
         out << "(void)lease;\n";
         out << "profile << R\"(" << print.getMessage() << ")\" << ";
-        out << getRelationName(print.getRelation()) << "->size() << ";
+        out << getRelationNameInternal(print.getRelation()) << "->size() << ";
         if (ext == "json") {
             out << "\"},\" << ";
         }
@@ -650,8 +664,8 @@ public:
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         const std::string tempKnowledge = "rel_0";
-        const std::string& deltaKnowledge = getRelationName(swap.getFirstRelation());
-        const std::string& newKnowledge = getRelationName(swap.getSecondRelation());
+        const std::string& deltaKnowledge = getRelationNameInternal(swap.getFirstRelation());
+        const std::string& newKnowledge = getRelationNameInternal(swap.getSecondRelation());
 
         // perform a triangular swap of pointers
         out << "{\nauto " << tempKnowledge << " = " << deltaKnowledge << ";\n"
@@ -726,7 +740,7 @@ public:
         PRINT_BEGIN_COMMENT(out);
         // get relation name
         const auto& rel = scan.getRelation();
-        auto relName = getRelationName(rel);
+        auto relName = getRelationNameInternal(rel);
         auto ctxName = "READ_OP_CONTEXT(" + getOpContextName(rel) + ")";
         auto level = scan.getLevel();
 
@@ -827,7 +841,7 @@ public:
         // get some properties
         const auto& rel = aggregate.getRelation();
         auto arity = rel.getArity();
-        auto relName = getRelationName(rel);
+        auto relName = getRelationNameInternal(rel);
         auto ctxName = "READ_OP_CONTEXT(" + getOpContextName(rel) + ")";
         auto level = aggregate.getLevel();
 
@@ -972,7 +986,7 @@ public:
         PRINT_BEGIN_COMMENT(out);
         const auto& rel = project.getRelation();
         auto arity = rel.getArity();
-        auto relName = getRelationName(rel);
+        auto relName = getRelationNameInternal(rel);
         auto ctxName = "READ_OP_CONTEXT(" + getOpContextName(rel) + ")";
 
         // check condition
@@ -991,7 +1005,7 @@ public:
             // check filter
         }
         if (project.hasFilter()) {
-            auto relFilter = getRelationName(project.getFilter());
+            auto relFilter = getRelationNameInternal(project.getFilter());
             auto ctxFilter = "READ_OP_CONTEXT(" + getOpContextName(project.getFilter()) + ")";
             out << "if (!" << relFilter << ".contains(tuple," << ctxFilter << ")) {";
         }
@@ -1106,7 +1120,7 @@ public:
     int visitEmpty(const RamEmpty& empty, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
-        out << getRelationName(empty.getRelation()) << "->"
+        out << getRelationNameInternal(empty.getRelation()) << "->"
             << "empty()";
         PRINT_END_COMMENT(out);
         return fileCounter;
@@ -1117,7 +1131,7 @@ public:
         PRINT_BEGIN_COMMENT(out);
         // get some details
         const auto& rel = ne.getRelation();
-        auto relName = getRelationName(rel);
+        auto relName = getRelationNameInternal(rel);
         auto ctxName = "READ_OP_CONTEXT(" + getOpContextName(rel) + ")";
         auto arity = rel.getArity();
 
@@ -1398,12 +1412,15 @@ private:
     }
 };
 
-    int genCode(std::string classname, std::string mainFilename,
-		std::string baseName, const RamStatement& stmt) {
+    int CodeEmitter::fileCounter = 0;
+
+
+    int genCode(std::string classname, std::string mainFilename, std::string baseName,
+		std::unordered_map<std::string, std::string>* relTypes, const RamStatement& stmt) {
     // use printer
-	CodeEmitter ce(classname, mainFilename, baseName);
+	CodeEmitter ce(classname, mainFilename, baseName, relTypes);
 	int res = ce.visit(stmt, 0);
-	ce.cleanUp();
+	ce.cleanUp(true);
 	return res;
     }
 }  // namespace
@@ -1452,23 +1469,23 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     cppos << "using namespace ram;\n";
 
     // print wrapper for regex
-    hppos << "class " << classname << " : public SouffleProgram {\n";
-    hppos << "private:\n";
-    hppos << "static inline bool regex_wrapper(const char *pattern, const char *text) {\n";
-    hppos << "   bool result = false; \n";
-    hppos << "   try { result = std::regex_match(text, std::regex(pattern)); } catch(...) { \n";
-    hppos << "     std::cerr << \"warning: wrong pattern provided for match(\\\"\" << pattern << \"\\\",\\\"\" "
+    cppos << "inline bool regex_wrapper(const char *pattern, const char *text) {\n";
+    cppos << "   bool result = false; \n";
+    cppos << "   try { result = std::regex_match(text, std::regex(pattern)); } catch(...) { \n";
+    cppos << "     std::cerr << \"warning: wrong pattern provided for match(\\\"\" << pattern << \"\\\",\\\"\" "
           "<< text << \"\\\")\\n\";\n}\n";
-    hppos << "   return result;\n";
-    hppos << "}\n";
-    hppos << "static inline std::string substr_wrapper(const char *str, size_t idx, size_t len) {\n";
-    hppos << "   std::string sub_str, result; \n";
-    hppos << "   try { result = std::string(str).substr(idx,len); } catch(...) { \n";
-    hppos << "     std::cerr << \"warning: wrong index position provided by substr(\\\"\";\n";
-    hppos << "     std::cerr << str << \"\\\",\" << (int32_t)idx << \",\" << (int32_t)len << \") "
+    cppos << "   return result;\n";
+    cppos << "}\n";
+    cppos << "inline std::string substr_wrapper(const char *str, size_t idx, size_t len) {\n";
+    cppos << "   std::string sub_str, result; \n";
+    cppos << "   try { result = std::string(str).substr(idx,len); } catch(...) { \n";
+    cppos << "     std::cerr << \"warning: wrong index position provided by substr(\\\"\";\n";
+    cppos << "     std::cerr << str << \"\\\",\" << (int32_t)idx << \",\" << (int32_t)len << \") "
           "functor.\\n\";\n";
-    hppos << "   } return result;\n";
-    hppos << "}\n";
+    cppos << "   } return result;\n";
+    cppos << "}\n";
+
+    hppos << "class " << classname << " : public SouffleProgram {\n";
 
     if (Global::config().has("profile")) {
         hppos << "std::string profiling_fname;\n";
@@ -1476,7 +1493,8 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
 
     // declare symbol table
     hppos << "public:\n";
-    hppos << "SymbolTable symTable;\n";
+    // hppos << "SymbolTable symTable;\n";  // INCLASS
+    cppos << "SymbolTable symTable;\n";
 
     // print relation definitions
     std::string initCons;      // initialization of constructor
@@ -1484,8 +1502,11 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     std::string registerRel;   // registration of relations
     int relCtr = 0;
     std::string tempType;  // string to hold the type of the temporary relations
-    visitDepthFirst(*(prog.getMain()), [&](const RamCreate& create) {
+    std::string globalRelDecls;  // Global declarations of relation variables
+    std::string initConsGlobal;  // Initilizations of relation variables declared globablly
+    auto relTypes = new std::unordered_map<std::string, std::string>();
 
+    visitDepthFirst(*(prog.getMain()), [&](const RamCreate& create) {
         // get some table details
         const auto& rel = create.getRelation();
         int arity = rel.getArity();
@@ -1500,12 +1521,15 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
                                                                       idxAnalysis->getIndexes(rel));
 
         // defining table
-        hppos << "// -- Table: " << raw_name << "\n";
-        hppos << type << "* " << name << ";\n";
-        if (initCons.size() > 0) {
-            initCons += ",\n";
-        }
-        initCons += name + "(new " + type + "())";
+	(*relTypes)[name] = type;
+        // hppos << "// -- Table: " << raw_name << "\n";
+        // hppos << type << "* " << name << ";\n";
+	globalRelDecls += type + "* " + name + ";\n";
+        // if (initCons.size() > 0) {   // INCLASS
+            // initCons += ",\n";
+        // }
+        // initCons += name + "(new " + type + "())";    // INCLASS
+	initConsGlobal += name + " = new " + type + "();\n";
         deleteForNew += "delete " + name + ";\n";
         if ((rel.isInput() || rel.isComputed() || Global::config().has("provenance")) && !rel.isTemp()) {
             hppos << "souffle::RelationWrapper<";
@@ -1535,7 +1559,8 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
             tupleType += "}";
             tupleName += "}";
 
-            initCons += ",\nwrapper_" + name + "(" + "*" + name + ",symTable,\"" + raw_name + "\"," +
+	    if (initCons.size() > 0) initCons += ",";
+            initCons += "\nwrapper_" + name + "(" + "*" + name + ",symTable,\"" + raw_name + "\"," +
                         tupleType + "," + tupleName + ")";
             registerRel += "addRelation(\"" + raw_name + "\",&wrapper_" + name + "," +
                            std::to_string(rel.isInput()) + "," + std::to_string(rel.isOutput()) + ");\n";
@@ -1543,6 +1568,9 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     });
 
     hppos << "public:\n";
+
+    // Glocal declarations for all relation variables
+    cppos << globalRelDecls << "\n"; // OUTCLASS
 
     // -- constructor --
     // declare the constructor in the header
@@ -1562,6 +1590,10 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
         }
     }
     cppos << "{\n";
+
+    // Initialize rels
+    cppos << initConsGlobal; // OUTCLASS
+
     cppos << registerRel;
 
     cppos << "// -- initialize symbol table --\n";
@@ -1638,21 +1670,20 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     if (Global::config().has("profile")) {
         cppos << "std::ofstream profile(profiling_fname);\n";
         cppos << "profile << \"" << AstLogStatement::startDebug() << "\" << std::endl;\n";
-        numRunFuns = genCode(classname, hppFilename, baseFilename, *(prog.getMain()));
+        numRunFuns = genCode(classname, hppFilename, baseFilename, relTypes, *(prog.getMain()));
     } else {
-        numRunFuns = genCode(classname, hppFilename, baseFilename, *(prog.getMain()));
+        numRunFuns = genCode(classname, hppFilename, baseFilename, relTypes, *(prog.getMain()));
     }
 
-    // declare all the runFunctions in the header
-    for (int i = 0; i < numRunFuns; ++i) {
-	hppos << "private:\ntemplate <bool performIO> void runFunction" << i << "(std::string inputDirectory, "
-	    "std::string outputDirectory);\n";
-    }
-
-    hppos << "private:\ntemplate <bool performIO> void runFunction(std::string inputDirectory, "
-	"std::string outputDirectory);\n";
-    cppos << "template <bool performIO> void " << classname << "::runFunction(std::string inputDirectory = \".\", "
-	"std::string outputDirectory = \".\") {\n";
+    cppos << "template <bool performIO> void runFunction1(std::string, std::string);\n";
+    // for (int i = 1; i <= numRunFuns+1; ++i) {
+	// hppos << "private:\ntemplate <bool performIO> void runFunction" << i << "(std::string inputDirectory, "
+	    // "std::string outputDirectory);\n";
+    // }
+    hppos << "private:\ntemplate <bool performIO> void runFunction(std::string inputDirectory = \".\", "
+	"std::string outputDirectory = \".\");\n";
+    cppos << "template <bool performIO> void " << classname << "::runFunction(std::string inputDirectory, "
+	"std::string outputDirectory) {\n";
 
     cppos << "SignalHandler::instance()->set();\n";
 
@@ -1668,7 +1699,7 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     }
 
     cppos << "// -- query evaluation --\n";
-    cppos << "runFunction0<performIO>(inputDirectory, outputDirectory);\n";
+    cppos << "runFunction1<performIO>(inputDirectory, outputDirectory);\n";
 
     // add code printing hint statistics
     cppos << "\n// -- relation hint statistics --\n";
@@ -1687,9 +1718,9 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     cppos << "}\n";  // end of runFunction() method
 
     // add methods to run with and without performing IO (mainly for the interface)
-    hppos << "public:\nvoid run();\n";
-    cppos << "void " << classname << "::run() { runFunction<false>(); }\n";
-    hppos << "void runAll(std::string inputDirectory, std::string outputDirectory);\n";
+    // hppos << "public:\nvoid run();\n";
+    // cppos << "void " << classname << "::run() { runFunction<false>(); }\n";
+    hppos << "public:\nvoid runAll(std::string inputDirectory, std::string outputDirectory);\n";
     cppos << "void " << classname << "::runAll(std::string inputDirectory = \".\", std::string outputDirectory = \".\") { "
 	"runFunction<true>(inputDirectory, outputDirectory); }\n";
 
@@ -1851,7 +1882,7 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
                                                   "std::vector<RamDomain>& ret, std::vector<bool>& err) {\n";
 
             // generate code for body
-            genCode(classname, hppFilename, baseFilename, *sub.second);
+            genCode(classname, hppFilename, baseFilename, relTypes, *sub.second);
 
             cppos << "return;\n";
             cppos << "}\n";  // end of subroutine
@@ -1863,21 +1894,21 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     hppos << "}\n";   // end of namespace declaration
 
     // hidden hooks
-    cppos << "SouffleProgram *newInstance_" << id << "(){return new " << classname << ";}\n";
-    cppos << "SymbolTable *getST_" << id << "(SouffleProgram *p){return &reinterpret_cast<" << classname
-       << "*>(p)->symTable;}\n";
+    // cppos << "SouffleProgram *newInstance_" << id << "(){return new " << classname << ";}\n";
+    // cppos << "SymbolTable *getST_" << id << "(SouffleProgram *p){return &reinterpret_cast<" << classname
+       // << "*>(p)->symTable;}\n";
 
-    cppos << "#ifdef __EMBEDDED_SOUFFLE__\n";
-    cppos << "class factory_" << classname << ": public souffle::ProgramFactory {\n";
-    cppos << "SouffleProgram *newInstance() {\n";
-    cppos << "return new " << classname << "();\n";
-    cppos << "};\n";
-    cppos << "public:\n";
-    cppos << "factory_" << classname << "() : ProgramFactory(\"" << id << "\"){}\n";
-    cppos << "};\n";
-    cppos << "static factory_" << classname << " __factory_" << classname << "_instance;\n";
+    // cppos << "#ifdef __EMBEDDED_SOUFFLE__\n";
+    // cppos << "class factory_" << classname << ": public souffle::ProgramFactory {\n";
+    // cppos << "SouffleProgram *newInstance() {\n";
+    // cppos << "return new " << classname << "();\n";
+    // cppos << "};\n";
+    // cppos << "public:\n";
+    // cppos << "factory_" << classname << "() : ProgramFactory(\"" << id << "\"){}\n";
+    // cppos << "};\n";
+    // cppos << "static factory_" << classname << " __factory_" << classname << "_instance;\n";
     // cppos << "}\n";
-    cppos << "#else\n";
+    // cppos << "#else\n";
     cppos << "}\n";
     cppos << "int main(int argc, char** argv)\n{\n";
     cppos << "try{\n";
@@ -1921,7 +1952,7 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     cppos << "return 0;\n";
     cppos << "} catch(std::exception &e) { souffle::SignalHandler::instance()->error(e.what());}\n";
     cppos << "}\n";
-    cppos << "#endif\n";
+    // cppos << "#endif\n";
     hppos.flush();
     hppos.close();
     cppos.flush();
