@@ -32,6 +32,8 @@
 #include "TypeSystem.h"
 #include "UnaryFunctorOps.h"
 
+#include "picosha2.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -248,11 +250,14 @@ class CodeEmitter : public RamVisitor<int, int> {
     std::string mainFilename;
     std::string classname;
     std::ostringstream* curr_os;
-    std::unordered_set<std::string> referencedRelations;
+    std::vector<std::unordered_set<std::string>*> referencedRelations;
+    std::unordered_set<std::string> *currReferencedRelations;
     std::unordered_map<std::string, std::string>* relTypes;
+    std::vector<std::string> functionBodies;
+    std::string rootFunction;
 
 public:
-    static const int maxFileSize = 1;
+    static const int maxFileSize = 10;
     struct printer {
         CodeEmitter& p;
         const RamNode& node;
@@ -277,19 +282,55 @@ public:
     }
 
     void SplitFunction(bool init = false) {
-	if (!init) cleanUp(false);
+	if (!init) {
+	    std::cerr << "[DBG] Split function" << std::endl;
+	    curr_os->flush();
+	    std::string currBody = curr_os->str();
+	    std::cerr << "[DBG] File length: " << currBody.size() << std::endl;
+	    functionBodies.push_back(currBody);
+	    delete curr_os;
+	    referencedRelations.push_back(currReferencedRelations);
+	}
+	currReferencedRelations = new std::unordered_set<std::string>();
 	curr_os = new std::ostringstream();
     }
 
-    std::string nextFileName() {
-	return baseFilename + "_run" + std::to_string(++fileCounter) + ".cpp";
+    std::string sha256(const std::string& code) {
+	std::string hash_hex_str;
+	picosha2::hash256_hex_string(code, hash_hex_str);
+	return hash_hex_str;
+	// return baseFilename + "_run" + std::to_string(++fileCounter) + ".cpp";
     }
 
-    void cleanUp(bool last) {
-	std::string filename = nextFileName();
-	std::ofstream ofs(filename);
+    void dumpAllFiles() {
+	curr_os->flush();
+	std::string currBody = curr_os->str();
+	std::cerr << "[DBG] File length: " << currBody.size() << std::endl;
+	functionBodies.push_back(currBody);
+	referencedRelations.push_back(currReferencedRelations);
+	delete curr_os;
+
+	std::cerr << "[DBG] Dumping files " << referencedRelations.size() << std::endl;
+
+	std::string currHash = sha256(functionBodies[0]);
+	std::string nextHash = "";
+	size_t numFuns = functionBodies.size();
+	for (size_t i = 0; i < numFuns; ++i) {
+	    std::cerr << i << std::endl;
+	    if (i + 1 < numFuns) nextHash = sha256(functionBodies[i + 1]);
+	    else nextHash = "";
+	    dumpFile(functionBodies[i], currHash, nextHash, referencedRelations[i], (i == 0));
+	    currHash = nextHash;
+	}
+    }
+
+    std::string getRootFunction() { return rootFunction; }
+
+    void dumpFile(std::string& body, std::string& currHash, std::string& nextHash,
+		  std::unordered_set<std::string>* refRelations, bool first) {
+	std::cerr << "[DBG] Dumping file " << currHash << std::endl;
+	std::ofstream ofs(currHash + ".cpp");
 	ofs << "#include \"souffle/CompiledSouffle.h\"\n\n";
-	// ofs << "#include \"" << mainFilename << "\"\n\n";
 	if (Global::config().has("provenance")) {
 	    ofs << "#include \"souffle/Explain.h\"\n";
 	    ofs << "#include \"<ncurses.h>\"\n\n";
@@ -297,52 +338,101 @@ public:
 
 	ofs << "namespace souffle {\n";
 	ofs << "using namespace ram;\n";
-	std::string newFunction = "runFunction" + std::to_string(fileCounter + 1);
-	if (!last)
+	std::string newFunction = "fun_" + nextHash;
+	if (nextHash.size() != 0)
 	    ofs << "template <bool performIO> void " << newFunction
 		<< "(std::string inputDirectory = \".\", "
-		<< "std::string outputDirectory = \".\");";
+		<< "std::string outputDirectory = \".\");\n";
 
 	// Extern definitions for relation variables
-	for (auto it = referencedRelations.begin(); it != referencedRelations.end(); ++it)
+	for (auto it = refRelations->begin(); it != refRelations->end(); ++it)
 	    ofs << "extern " << relTypes->at(*it) << "* " << *it << ";\n";
+	delete refRelations;
 	ofs << "extern SymbolTable symTable;\n";
-	ofs << "inline bool regex_wrapper(const char *pattern, const char *text);";
-	ofs << "inline bool substr_wrapper(const char *str, size_t idx, size_t len);";
+	ofs << "inline bool regex_wrapper(const char *pattern, const char *text);\n";
+	ofs << "inline bool substr_wrapper(const char *str, size_t idx, size_t len);\n";
 
-	referencedRelations.clear();
 
 	ofs << "\n";
-	std::string currFunction = "runFunction" + std::to_string(fileCounter);
-	// ofs << "template <bool performIO> void " << classname << "::" << currFunction
-	    // << "(std::string inputDirectory, "
-	    // << "std::string outputDirectory) {\n";
+	std::string currFunction = "fun_" + currHash;
+	if (first) rootFunction = currFunction;
 	ofs << "template <bool performIO> void " << currFunction
 	    << "(std::string inputDirectory = \".\", "
 	    << "std::string outputDirectory = \".\") {\n";
 	// Dump the function body
-	curr_os->flush();
-	ofs << curr_os->str();
+	ofs << body;
 
-	if (!last)
+	if (nextHash.size() != 0)
 	    ofs << newFunction << "<performIO>(inputDirectory, outputDirectory);\n";
 
 	ofs << "\n}\n";
-	ofs << "template void runFunction" << fileCounter <<
+	ofs << "template void " << currFunction <<
 	    "<true>(std::string inputDirectory, std::string outputDirectory);\n";
-	// ofs << "template void " << classname << "::runFunction" <<
-	    // fileCounter << "<true>(std::string inputDirectory, std::string outputDirectory);\n";
 	ofs << "\n}\n";
 
 	ofs.flush();
 	ofs.close();
-	delete curr_os;
     }
+
+    // void cleanUp(bool last) {
+    // 	curr_os->flush();
+    // 	std::string code = curr_os->str();
+    // 	std::string filename = nextFileName(code);
+    // 	std::ofstream ofs(filename);
+    // 	ofs << "#include \"souffle/CompiledSouffle.h\"\n\n";
+    // 	// ofs << "#include \"" << mainFilename << "\"\n\n";
+    // 	if (Global::config().has("provenance")) {
+    // 	    ofs << "#include \"souffle/Explain.h\"\n";
+    // 	    ofs << "#include \"<ncurses.h>\"\n\n";
+    // 	}
+
+    // 	ofs << "namespace souffle {\n";
+    // 	ofs << "using namespace ram;\n";
+    // 	std::string newFunction = "runFunction" + std::to_string(fileCounter + 1);
+    // 	if (!last)
+    // 	    ofs << "template <bool performIO> void " << newFunction
+    // 		<< "(std::string inputDirectory = \".\", "
+    // 		<< "std::string outputDirectory = \".\");";
+
+    // 	// Extern definitions for relation variables
+    // 	for (auto it = referencedRelations.begin(); it != referencedRelations.end(); ++it)
+    // 	    ofs << "extern " << relTypes->at(*it) << "* " << *it << ";\n";
+    // 	ofs << "extern SymbolTable symTable;\n";
+    // 	ofs << "inline bool regex_wrapper(const char *pattern, const char *text);";
+    // 	ofs << "inline bool substr_wrapper(const char *str, size_t idx, size_t len);";
+
+    // 	referencedRelations.clear();
+
+    // 	ofs << "\n";
+    // 	std::string currFunction = "runFunction" + std::to_string(fileCounter);
+    // 	// ofs << "template <bool performIO> void " << classname << "::" << currFunction
+    // 	    // << "(std::string inputDirectory, "
+    // 	    // << "std::string outputDirectory) {\n";
+    // 	ofs << "template <bool performIO> void " << currFunction
+    // 	    << "(std::string inputDirectory = \".\", "
+    // 	    << "std::string outputDirectory = \".\") {\n";
+    // 	// Dump the function body
+    // 	ofs << code;
+
+    // 	if (!last)
+    // 	    ofs << newFunction << "<performIO>(inputDirectory, outputDirectory);\n";
+
+    // 	ofs << "\n}\n";
+    // 	ofs << "template void runFunction" << fileCounter <<
+    // 	    "<true>(std::string inputDirectory, std::string outputDirectory);\n";
+    // 	// ofs << "template void " << classname << "::runFunction" <<
+    // 	    // fileCounter << "<true>(std::string inputDirectory, std::string outputDirectory);\n";
+    // 	ofs << "\n}\n";
+
+    // 	ofs.flush();
+    // 	ofs.close();
+    // 	delete curr_os;
+    // }
 
 public:
     inline const std::string getRelationNameInternal(const RamRelation& rel) {
 	std::string relName = getRelationName(rel);
-	referencedRelations.insert(relName);
+	currReferencedRelations->insert(relName);
 	return relName;
     }
 
@@ -1415,13 +1505,13 @@ private:
     int CodeEmitter::fileCounter = 0;
 
 
-    int genCode(std::string classname, std::string mainFilename, std::string baseName,
+    std::string genCode(std::string classname, std::string mainFilename, std::string baseName,
 		std::unordered_map<std::string, std::string>* relTypes, const RamStatement& stmt) {
     // use printer
 	CodeEmitter ce(classname, mainFilename, baseName, relTypes);
-	int res = ce.visit(stmt, 0);
-	ce.cleanUp(true);
-	return res;
+	ce.visit(stmt, 0);
+	ce.dumpAllFiles();
+	return ce.getRootFunction();
     }
 }  // namespace
 
@@ -1666,16 +1756,16 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     // -- run function --
 
     // generate code for the actual program body
-    int numRunFuns = -1;
+    std::string rootFunction = "";
     if (Global::config().has("profile")) {
         cppos << "std::ofstream profile(profiling_fname);\n";
         cppos << "profile << \"" << AstLogStatement::startDebug() << "\" << std::endl;\n";
-        numRunFuns = genCode(classname, hppFilename, baseFilename, relTypes, *(prog.getMain()));
+        rootFunction = genCode(classname, hppFilename, baseFilename, relTypes, *(prog.getMain()));
     } else {
-        numRunFuns = genCode(classname, hppFilename, baseFilename, relTypes, *(prog.getMain()));
+        rootFunction = genCode(classname, hppFilename, baseFilename, relTypes, *(prog.getMain()));
     }
 
-    cppos << "template <bool performIO> void runFunction1(std::string, std::string);\n";
+    cppos << "template <bool performIO> void " << rootFunction << "(std::string, std::string);\n";
     // for (int i = 1; i <= numRunFuns+1; ++i) {
 	// hppos << "private:\ntemplate <bool performIO> void runFunction" << i << "(std::string inputDirectory, "
 	    // "std::string outputDirectory);\n";
@@ -1699,7 +1789,7 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     }
 
     cppos << "// -- query evaluation --\n";
-    cppos << "runFunction1<performIO>(inputDirectory, outputDirectory);\n";
+    cppos << rootFunction << "<performIO>(inputDirectory, outputDirectory);\n";
 
     // add code printing hint statistics
     cppos << "\n// -- relation hint statistics --\n";
@@ -1959,10 +2049,10 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     cppos.close();
 
     std::vector<std::string>* allCppFiles = new std::vector<std::string>();
-    allCppFiles->push_back(cppFilename);
-    for (int i = 0; i < numRunFuns; ++i) {
-	allCppFiles->push_back(baseFilename + "_run" + std::to_string(i) + ".cpp");
-    }
+    // allCppFiles->push_back(cppFilename);
+    // for (int i = 0; i < numRunFuns; ++i) {
+	// allCppFiles->push_back(baseFilename + "_run" + std::to_string(i) + ".cpp");
+    // }
     return allCppFiles;
 }
 }  // end of namespace souffle
