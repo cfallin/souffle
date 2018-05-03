@@ -228,7 +228,7 @@ std::set<RamRelation> getReferencedRelations(const RamOperation& op) {
     return res;
 }
 
-class CodeEmitter : public RamVisitor<int, int> {
+class CodeEmitter : public RamVisitor<void, int> {
 // macros to add comments to generated code for debugging
 #ifndef PRINT_BEGIN_COMMENT
 #define PRINT_BEGIN_COMMENT(os)                                                  \
@@ -246,18 +246,15 @@ class CodeEmitter : public RamVisitor<int, int> {
     int indentLevel = 0;
     int fileSize = 0;
     static int fileCounter;
-    std::string baseFilename;
-    std::string mainFilename;
-    std::string classname;
     std::ostringstream* curr_os;
     std::vector<std::unordered_set<std::string>*> referencedRelations;
     std::unordered_set<std::string> *currReferencedRelations;
     std::unordered_map<std::string, std::string>* relTypes;
     std::vector<std::string> functionBodies;
-    std::string rootFunction;
+    std::vector<std::string> functionNames;
 
 public:
-    static const int maxFileSize = 10;
+    static const int maxFileSize = 1;
     struct printer {
         CodeEmitter& p;
         const RamNode& node;
@@ -274,19 +271,15 @@ public:
         }
     };
 
-    CodeEmitter(std::string classname, std::string mainFile, std::string baseFile,
-		std::unordered_map<std::string, std::string>* relTypes)
-	: baseFilename(baseFile), mainFilename(mainFile), classname(classname), relTypes(relTypes) {
+    CodeEmitter(std::unordered_map<std::string, std::string>* relTypes) : relTypes(relTypes) {
         rec = [&](std::ostream& out, const RamNode* node) { this->visit(*node, 0); };
 	SplitFunction(true);
     }
 
     void SplitFunction(bool init = false) {
 	if (!init) {
-	    std::cerr << "[DBG] Split function" << std::endl;
 	    curr_os->flush();
 	    std::string currBody = curr_os->str();
-	    std::cerr << "[DBG] File length: " << currBody.size() << std::endl;
 	    functionBodies.push_back(currBody);
 	    delete curr_os;
 	    referencedRelations.push_back(currReferencedRelations);
@@ -299,24 +292,19 @@ public:
 	std::string hash_hex_str;
 	picosha2::hash256_hex_string(code, hash_hex_str);
 	return hash_hex_str;
-	// return baseFilename + "_run" + std::to_string(++fileCounter) + ".cpp";
     }
 
     void dumpAllFiles() {
 	curr_os->flush();
 	std::string currBody = curr_os->str();
-	std::cerr << "[DBG] File length: " << currBody.size() << std::endl;
 	functionBodies.push_back(currBody);
 	referencedRelations.push_back(currReferencedRelations);
 	delete curr_os;
-
-	std::cerr << "[DBG] Dumping files " << referencedRelations.size() << std::endl;
 
 	std::string currHash = sha256(functionBodies[0]);
 	std::string nextHash = "";
 	size_t numFuns = functionBodies.size();
 	for (size_t i = 0; i < numFuns; ++i) {
-	    std::cerr << i << std::endl;
 	    if (i + 1 < numFuns) nextHash = sha256(functionBodies[i + 1]);
 	    else nextHash = "";
 	    dumpFile(functionBodies[i], currHash, nextHash, referencedRelations[i], (i == 0));
@@ -324,11 +312,10 @@ public:
 	}
     }
 
-    std::string getRootFunction() { return rootFunction; }
+    std::vector<std::string> getFunctionNames() { return functionNames; }
 
     void dumpFile(std::string& body, std::string& currHash, std::string& nextHash,
 		  std::unordered_set<std::string>* refRelations, bool first) {
-	std::cerr << "[DBG] Dumping file " << currHash << std::endl;
 	std::ofstream ofs(currHash + ".cpp");
 	ofs << "#include \"souffle/CompiledSouffle.h\"\n\n";
 	if (Global::config().has("provenance")) {
@@ -339,10 +326,10 @@ public:
 	ofs << "namespace souffle {\n";
 	ofs << "using namespace ram;\n";
 	std::string newFunction = "fun_" + nextHash;
-	if (nextHash.size() != 0)
-	    ofs << "template <bool performIO> void " << newFunction
-		<< "(std::string inputDirectory = \".\", "
-		<< "std::string outputDirectory = \".\");\n";
+	// if (nextHash.size() != 0)
+	    // ofs << "template <bool performIO> void " << newFunction
+		// << "(std::string inputDirectory = \".\", "
+		// << "std::string outputDirectory = \".\");\n";
 
 	// Extern definitions for relation variables
 	for (auto it = refRelations->begin(); it != refRelations->end(); ++it)
@@ -355,15 +342,15 @@ public:
 
 	ofs << "\n";
 	std::string currFunction = "fun_" + currHash;
-	if (first) rootFunction = currFunction;
+	functionNames.push_back(currFunction);
 	ofs << "template <bool performIO> void " << currFunction
 	    << "(std::string inputDirectory = \".\", "
 	    << "std::string outputDirectory = \".\") {\n";
 	// Dump the function body
 	ofs << body;
 
-	if (nextHash.size() != 0)
-	    ofs << newFunction << "<performIO>(inputDirectory, outputDirectory);\n";
+	// if (nextHash.size() != 0)
+	    // ofs << newFunction << "<performIO>(inputDirectory, outputDirectory);\n";
 
 	ofs << "\n}\n";
 	ofs << "template void " << currFunction <<
@@ -374,61 +361,6 @@ public:
 	ofs.close();
     }
 
-    // void cleanUp(bool last) {
-    // 	curr_os->flush();
-    // 	std::string code = curr_os->str();
-    // 	std::string filename = nextFileName(code);
-    // 	std::ofstream ofs(filename);
-    // 	ofs << "#include \"souffle/CompiledSouffle.h\"\n\n";
-    // 	// ofs << "#include \"" << mainFilename << "\"\n\n";
-    // 	if (Global::config().has("provenance")) {
-    // 	    ofs << "#include \"souffle/Explain.h\"\n";
-    // 	    ofs << "#include \"<ncurses.h>\"\n\n";
-    // 	}
-
-    // 	ofs << "namespace souffle {\n";
-    // 	ofs << "using namespace ram;\n";
-    // 	std::string newFunction = "runFunction" + std::to_string(fileCounter + 1);
-    // 	if (!last)
-    // 	    ofs << "template <bool performIO> void " << newFunction
-    // 		<< "(std::string inputDirectory = \".\", "
-    // 		<< "std::string outputDirectory = \".\");";
-
-    // 	// Extern definitions for relation variables
-    // 	for (auto it = referencedRelations.begin(); it != referencedRelations.end(); ++it)
-    // 	    ofs << "extern " << relTypes->at(*it) << "* " << *it << ";\n";
-    // 	ofs << "extern SymbolTable symTable;\n";
-    // 	ofs << "inline bool regex_wrapper(const char *pattern, const char *text);";
-    // 	ofs << "inline bool substr_wrapper(const char *str, size_t idx, size_t len);";
-
-    // 	referencedRelations.clear();
-
-    // 	ofs << "\n";
-    // 	std::string currFunction = "runFunction" + std::to_string(fileCounter);
-    // 	// ofs << "template <bool performIO> void " << classname << "::" << currFunction
-    // 	    // << "(std::string inputDirectory, "
-    // 	    // << "std::string outputDirectory) {\n";
-    // 	ofs << "template <bool performIO> void " << currFunction
-    // 	    << "(std::string inputDirectory = \".\", "
-    // 	    << "std::string outputDirectory = \".\") {\n";
-    // 	// Dump the function body
-    // 	ofs << code;
-
-    // 	if (!last)
-    // 	    ofs << newFunction << "<performIO>(inputDirectory, outputDirectory);\n";
-
-    // 	ofs << "\n}\n";
-    // 	ofs << "template void runFunction" << fileCounter <<
-    // 	    "<true>(std::string inputDirectory, std::string outputDirectory);\n";
-    // 	// ofs << "template void " << classname << "::runFunction" <<
-    // 	    // fileCounter << "<true>(std::string inputDirectory, std::string outputDirectory);\n";
-    // 	ofs << "\n}\n";
-
-    // 	ofs.flush();
-    // 	ofs.close();
-    // 	delete curr_os;
-    // }
-
 public:
     inline const std::string getRelationNameInternal(const RamRelation& rel) {
 	std::string relName = getRelationName(rel);
@@ -438,23 +370,26 @@ public:
 
     // -- relation statements --
 
-    int visitCreate(const RamCreate& /*create*/, int) override {
+    void visitCreate(const RamCreate& /*create*/, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         PRINT_END_COMMENT(out);
-	return fileCounter;
+	return;
     }
 
-    int visitFact(const RamFact& fact, int) override {
+    void visitFact(const RamFact& fact, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << getRelationNameInternal(fact.getRelation()) << "->"
             << "insert(" << join(fact.getValues(), ",", rec) << ");\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+	// Code splitting
+	++fileSize;
+	if (fileSize > maxFileSize && indentLevel == 0) SplitFunction();
+        return;
     }
 
-    int visitLoad(const RamLoad& load, int) override {
+    void visitLoad(const RamLoad& load, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "if (performIO) {\n";
@@ -481,10 +416,10 @@ public:
 	++fileSize;
 	if (fileSize > maxFileSize && indentLevel == 0) SplitFunction();
 	//
-        return fileCounter;
+        return;
     }
 
-    int visitStore(const RamStore& store, int) override {
+    void visitStore(const RamStore& store, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "if (performIO) {\n";
@@ -510,10 +445,10 @@ public:
 	++fileSize;
 	if (fileSize > maxFileSize && indentLevel == 0) SplitFunction();
 	//
-        return fileCounter;
+        return;
     }
 
-    int visitInsert(const RamInsert& insert, int) override {
+    void visitInsert(const RamInsert& insert, int) override {
 	std::ostream& out = *(curr_os);
  	// Code splitting
 	++indentLevel;
@@ -619,10 +554,10 @@ public:
 	--indentLevel;
 	if (fileSize > maxFileSize && indentLevel == 0) SplitFunction();
 	//
-        return fileCounter;
+        return;
     }
 
-    int visitMerge(const RamMerge& merge, int) override {
+    void visitMerge(const RamMerge& merge, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         if (merge.getTargetRelation().isEqRel()) {
@@ -634,29 +569,38 @@ public:
             << "insertAll("
             << "*" << getRelationNameInternal(merge.getSourceRelation()) << ");\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+	// Code splitting
+	++fileSize;
+	if (fileSize > maxFileSize && indentLevel == 0) SplitFunction();
+        return;
     }
 
-    int visitClear(const RamClear& clear, int) override {
+    void visitClear(const RamClear& clear, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << getRelationNameInternal(clear.getRelation()) << "->"
             << "purge();\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+	// Code splitting
+	++fileSize;
+	if (fileSize > maxFileSize && indentLevel == 0) SplitFunction();
+        return;
     }
 
-    int visitDrop(const RamDrop& drop, int) override {
+    void visitDrop(const RamDrop& drop, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "if (!isHintsProfilingEnabled() && (performIO || " << drop.getRelation().isTemp() << ")) ";
         out << getRelationNameInternal(drop.getRelation()) << "->"
             << "purge();\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+	// Code splitting
+	++fileSize;
+	if (fileSize > maxFileSize && indentLevel == 0) SplitFunction();
+        return;
     }
 
-    int visitPrintSize(const RamPrintSize& print, int) override {
+    void visitPrintSize(const RamPrintSize& print, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "if (performIO) {\n";
@@ -668,10 +612,13 @@ public:
         out << "}";
         out << "}\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+	// Code splitting
+	++fileSize;
+	if (fileSize > maxFileSize && indentLevel == 0) SplitFunction();
+        return;
     }
 
-    int visitLogSize(const RamLogSize& print, int) override {
+    void visitLogSize(const RamLogSize& print, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         const std::string ext = fileExtension(Global::config().get("profile"));
@@ -685,36 +632,39 @@ public:
         out << "std::endl;\n";
         out << "}";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+	// Code splitting
+	++fileSize;
+	if (fileSize > maxFileSize && indentLevel == 0) SplitFunction();
+        return;
     }
 
     // -- control flow statements --
 
-    int visitSequence(const RamSequence& seq, int) override {
+    void visitSequence(const RamSequence& seq, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         for (const auto& cur : seq.getStatements()) {
             out << print(cur);
         }
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitParallel(const RamParallel& parallel, int) override {
+    void visitParallel(const RamParallel& parallel, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         auto stmts = parallel.getStatements();
 
         // special handling cases
         if (stmts.empty()) {
-            return fileCounter;
+            return;
             PRINT_END_COMMENT(out);
         }
 
         // a single statement => save the overhead
         if (stmts.size() == 1) {
             out << print(stmts[0]);
-            return fileCounter;
+            return;
             PRINT_END_COMMENT(out);
         }
 
@@ -733,10 +683,10 @@ public:
         // done
         out << "SECTIONS_END;\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitLoop(const RamLoop& loop, int) override {
+    void visitLoop(const RamLoop& loop, int) override {
 	std::ostream& out = *(curr_os);
 	// Code splitting
 	++indentLevel;
@@ -747,10 +697,10 @@ public:
 
 	// Code splitting
 	--indentLevel;
-        return fileCounter;
+        return;
     }
 
-    int visitSwap(const RamSwap& swap, int) override {
+    void visitSwap(const RamSwap& swap, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         const std::string tempKnowledge = "rel_0";
@@ -763,18 +713,18 @@ public:
             << newKnowledge << " = " << tempKnowledge << ";\n"
             << "}\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitExit(const RamExit& exit, int) override {
+    void visitExit(const RamExit& exit, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "if(" << print(exit.getCondition()) << ") break;\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitLogTimer(const RamLogTimer& timer, int) override {
+    void visitLogTimer(const RamLogTimer& timer, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         // create local scope for name resolution
@@ -791,10 +741,10 @@ public:
         // done
         out << "}\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitDebugInfo(const RamDebugInfo& dbg, int) override {
+    void visitDebugInfo(const RamDebugInfo& dbg, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "SignalHandler::instance()->setMsg(R\"_(";
@@ -804,12 +754,12 @@ public:
         // insert statements of the rule
         visit(dbg.getStatement(), 0);
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
     // -- operations --
 
-    int visitSearch(const RamSearch& search, int) override {
+    void visitSearch(const RamSearch& search, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         auto condition = search.getCondition();
@@ -822,10 +772,10 @@ public:
             out << print(search.getNestedOperation());
         }
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitScan(const RamScan& scan, int) override {
+    void visitScan(const RamScan& scan, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         // get relation name
@@ -855,7 +805,7 @@ public:
                 visitSearch(scan, 0);
                 out << "}\n";
             }
-            return fileCounter;
+            return;
             PRINT_END_COMMENT(out);
         }
 
@@ -898,10 +848,10 @@ public:
         visitSearch(scan, 0);
         out << "}\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitLookup(const RamLookup& lookup, int) override {
+    void visitLookup(const RamLookup& lookup, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         auto arity = lookup.getArity();
@@ -922,10 +872,10 @@ public:
 
         out << "}\n";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitAggregate(const RamAggregate& aggregate, int) override {
+    void visitAggregate(const RamAggregate& aggregate, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         // get some properties
@@ -948,7 +898,7 @@ public:
                 << "size();\n";
             visitSearch(aggregate, 0);
             PRINT_END_COMMENT(out);
-            return fileCounter;
+            return;
         }
 
         // init result
@@ -1068,10 +1018,10 @@ public:
             out << "}\n";
         }
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitProject(const RamProject& project, int) override {
+    void visitProject(const RamProject& project, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         const auto& rel = project.getRelation();
@@ -1129,20 +1079,20 @@ public:
             }
         }
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
     // -- conditions --
 
-    int visitAnd(const RamAnd& c, int) override {
+    void visitAnd(const RamAnd& c, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "((" << print(c.getLHS()) << ") && (" << print(c.getRHS()) << "))";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitBinaryRelation(const RamBinaryRelation& rel, int) override {
+    void visitBinaryRelation(const RamBinaryRelation& rel, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         switch (rel.getOperator()) {
@@ -1204,19 +1154,19 @@ public:
                 break;
         }
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitEmpty(const RamEmpty& empty, int) override {
+    void visitEmpty(const RamEmpty& empty, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << getRelationNameInternal(empty.getRelation()) << "->"
             << "empty()";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitNotExists(const RamNotExists& ne, int) override {
+    void visitNotExists(const RamNotExists& ne, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         // get some details
@@ -1230,7 +1180,7 @@ public:
             out << "!" << relName << "->"
                 << "contains(Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec) << "}),"
                 << ctxName << ")";
-            return fileCounter;
+            return;
             PRINT_END_COMMENT(out);
         }
 
@@ -1248,35 +1198,35 @@ public:
         });
         out << "})," << ctxName << ").empty()";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
     // -- values --
-    int visitNumber(const RamNumber& num, int) override {
+    void visitNumber(const RamNumber& num, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "RamDomain(" << num.getConstant() << ")";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitElementAccess(const RamElementAccess& access, int) override {
+    void visitElementAccess(const RamElementAccess& access, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "env" << access.getLevel() << "[" << access.getElement() << "]";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitAutoIncrement(const RamAutoIncrement& /*inc*/, int) override {
+    void visitAutoIncrement(const RamAutoIncrement& /*inc*/, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "(ctr++)";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitUnaryOperator(const RamUnaryOperator& op, int) override {
+    void visitUnaryOperator(const RamUnaryOperator& op, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         switch (op.getOperator()) {
@@ -1345,10 +1295,10 @@ public:
                 break;
         }
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitBinaryOperator(const RamBinaryOperator& op, int) override {
+    void visitBinaryOperator(const RamBinaryOperator& op, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         switch (op.getOperator()) {
@@ -1423,10 +1373,10 @@ public:
                 assert(0 && "Unsupported Operation!");
         }
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
-    int visitTernaryOperator(const RamTernaryOperator& op, int) override {
+    void visitTernaryOperator(const RamTernaryOperator& op, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         switch (op.getOperator()) {
@@ -1444,12 +1394,12 @@ public:
                 assert(0 && "Unsupported Operation!");
         }
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
     // -- records --
 
-    int visitPack(const RamPack& pack, int) override {
+    void visitPack(const RamPack& pack, int) override {
 	std::ostream& out = *(curr_os);
         PRINT_BEGIN_COMMENT(out);
         out << "pack("
@@ -1457,20 +1407,20 @@ public:
             << "})"
             << ")";
         PRINT_END_COMMENT(out);
-        return fileCounter;
+        return;
     }
 
     // -- subroutine argument --
 
-    int visitArgument(const RamArgument& arg, int) override {
+    void visitArgument(const RamArgument& arg, int) override {
 	std::ostream& out = *(curr_os);
         out << "(args)[" << arg.getArgNumber() << "]";
-        return fileCounter;
+        return;
     }
 
     // -- subroutine return --
 
-    int visitReturn(const RamReturn& ret, int) override {
+    void visitReturn(const RamReturn& ret, int) override {
 	std::ostream& out = *(curr_os);
         for (auto val : ret.getValues()) {
             if (val == nullptr) {
@@ -1481,15 +1431,15 @@ public:
                 out << "err.push_back(false);\n";
             }
         }
-        return fileCounter;
+        return;
     }
 
     // -- safety net --
 
-    int visitNode(const RamNode& node, int /*out*/) override {
+    void visitNode(const RamNode& node, int /*out*/) override {
         std::cerr << "Unsupported node type: " << typeid(node).name() << "\n";
         assert(false && "Unsupported Node Type!");
-        return fileCounter;
+        return;
     }
 
 private:
@@ -1505,13 +1455,11 @@ private:
     int CodeEmitter::fileCounter = 0;
 
 
-    std::string genCode(std::string classname, std::string mainFilename, std::string baseName,
-		std::unordered_map<std::string, std::string>* relTypes, const RamStatement& stmt) {
-    // use printer
-	CodeEmitter ce(classname, mainFilename, baseName, relTypes);
+    std::vector<std::string> genCode(std::unordered_map<std::string, std::string>* relTypes, const RamStatement& stmt) {
+	CodeEmitter ce(relTypes);
 	ce.visit(stmt, 0);
 	ce.dumpAllFiles();
-	return ce.getRootFunction();
+	return ce.getFunctionNames();
     }
 }  // namespace
 
@@ -1583,7 +1531,6 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
 
     // declare symbol table
     hppos << "public:\n";
-    // hppos << "SymbolTable symTable;\n";  // INCLASS
     cppos << "SymbolTable symTable;\n";
 
     // print relation definitions
@@ -1612,13 +1559,7 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
 
         // defining table
 	(*relTypes)[name] = type;
-        // hppos << "// -- Table: " << raw_name << "\n";
-        // hppos << type << "* " << name << ";\n";
 	globalRelDecls += type + "* " + name + ";\n";
-        // if (initCons.size() > 0) {   // INCLASS
-            // initCons += ",\n";
-        // }
-        // initCons += name + "(new " + type + "())";    // INCLASS
 	initConsGlobal += name + " = new " + type + "();\n";
         deleteForNew += "delete " + name + ";\n";
         if ((rel.isInput() || rel.isComputed() || Global::config().has("provenance")) && !rel.isTemp()) {
@@ -1660,7 +1601,7 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     hppos << "public:\n";
 
     // Glocal declarations for all relation variables
-    cppos << globalRelDecls << "\n"; // OUTCLASS
+    cppos << globalRelDecls << "\n";
 
     // -- constructor --
     // declare the constructor in the header
@@ -1682,7 +1623,7 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     cppos << "{\n";
 
     // Initialize rels
-    cppos << initConsGlobal; // OUTCLASS
+    cppos << initConsGlobal;
 
     cppos << registerRel;
 
@@ -1756,20 +1697,18 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     // -- run function --
 
     // generate code for the actual program body
-    std::string rootFunction = "";
+    std::vector<std::string> functionNames;
     if (Global::config().has("profile")) {
         cppos << "std::ofstream profile(profiling_fname);\n";
         cppos << "profile << \"" << AstLogStatement::startDebug() << "\" << std::endl;\n";
-        rootFunction = genCode(classname, hppFilename, baseFilename, relTypes, *(prog.getMain()));
+        functionNames = genCode(relTypes, *(prog.getMain()));
     } else {
-        rootFunction = genCode(classname, hppFilename, baseFilename, relTypes, *(prog.getMain()));
+        functionNames = genCode(relTypes, *(prog.getMain()));
     }
 
-    cppos << "template <bool performIO> void " << rootFunction << "(std::string, std::string);\n";
-    // for (int i = 1; i <= numRunFuns+1; ++i) {
-	// hppos << "private:\ntemplate <bool performIO> void runFunction" << i << "(std::string inputDirectory, "
-	    // "std::string outputDirectory);\n";
-    // }
+    for (int i = 0; i < functionNames.size(); ++i)
+	cppos << "template <bool performIO> void " << functionNames[i] << "(std::string, std::string);\n";
+
     hppos << "private:\ntemplate <bool performIO> void runFunction(std::string inputDirectory = \".\", "
 	"std::string outputDirectory = \".\");\n";
     cppos << "template <bool performIO> void " << classname << "::runFunction(std::string inputDirectory, "
@@ -1789,7 +1728,8 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     }
 
     cppos << "// -- query evaluation --\n";
-    cppos << rootFunction << "<performIO>(inputDirectory, outputDirectory);\n";
+    for (int i = 0; i < functionNames.size(); ++i)
+	cppos << functionNames[i] << "<performIO>(inputDirectory, outputDirectory);\n";
 
     // add code printing hint statistics
     cppos << "\n// -- relation hint statistics --\n";
@@ -1808,8 +1748,6 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     cppos << "}\n";  // end of runFunction() method
 
     // add methods to run with and without performing IO (mainly for the interface)
-    // hppos << "public:\nvoid run();\n";
-    // cppos << "void " << classname << "::run() { runFunction<false>(); }\n";
     hppos << "public:\nvoid runAll(std::string inputDirectory, std::string outputDirectory);\n";
     cppos << "void " << classname << "::runAll(std::string inputDirectory = \".\", std::string outputDirectory = \".\") { "
 	"runFunction<true>(inputDirectory, outputDirectory); }\n";
@@ -1972,7 +1910,7 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
                                                   "std::vector<RamDomain>& ret, std::vector<bool>& err) {\n";
 
             // generate code for body
-            genCode(classname, hppFilename, baseFilename, relTypes, *sub.second);
+            genCode(relTypes, *sub.second);
 
             cppos << "return;\n";
             cppos << "}\n";  // end of subroutine
@@ -1983,22 +1921,6 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     hppos << "};\n";  // end of class declaration
     hppos << "}\n";   // end of namespace declaration
 
-    // hidden hooks
-    // cppos << "SouffleProgram *newInstance_" << id << "(){return new " << classname << ";}\n";
-    // cppos << "SymbolTable *getST_" << id << "(SouffleProgram *p){return &reinterpret_cast<" << classname
-       // << "*>(p)->symTable;}\n";
-
-    // cppos << "#ifdef __EMBEDDED_SOUFFLE__\n";
-    // cppos << "class factory_" << classname << ": public souffle::ProgramFactory {\n";
-    // cppos << "SouffleProgram *newInstance() {\n";
-    // cppos << "return new " << classname << "();\n";
-    // cppos << "};\n";
-    // cppos << "public:\n";
-    // cppos << "factory_" << classname << "() : ProgramFactory(\"" << id << "\"){}\n";
-    // cppos << "};\n";
-    // cppos << "static factory_" << classname << " __factory_" << classname << "_instance;\n";
-    // cppos << "}\n";
-    // cppos << "#else\n";
     cppos << "}\n";
     cppos << "int main(int argc, char** argv)\n{\n";
     cppos << "try{\n";
@@ -2042,7 +1964,6 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     cppos << "return 0;\n";
     cppos << "} catch(std::exception &e) { souffle::SignalHandler::instance()->error(e.what());}\n";
     cppos << "}\n";
-    // cppos << "#endif\n";
     hppos.flush();
     hppos.close();
     cppos.flush();
