@@ -173,7 +173,6 @@ class CodeEmitter : public RamVisitor<void, int> {
     std::function<void(std::ostream&, const RamNode*)> rec;
     int indentLevel = 0;
     int fileSize = 0;
-    static int fileCounter;
     std::ostringstream* curr_os;
     std::vector<std::unordered_set<std::string>*> referencedRelations;
     std::unordered_set<std::string> *currReferencedRelations;
@@ -229,16 +228,19 @@ public:
 	referencedRelations.push_back(currReferencedRelations);
 	delete curr_os;
 
+	std::unordered_set<std::string> hashes;
 	std::string currHash;
 	size_t numFuns = functionBodies.size();
 	for (size_t i = 0; i < numFuns; ++i) {
 	    currHash = sha256(functionBodies[i]);
+	    if (hashes.find(currHash) != hashes.end()) {
+		std::cerr << "File hash collision!";
+		currHash += std::to_string(i);
+	    }
+	    hashes.insert(currHash);
+
 	    dumpFile(functionBodies[i], currHash, referencedRelations[i], directory);
 	}
-    }
-
-    std::vector<std::pair<std::string, std::string>> getFunctionAndFileNames() {
-	return functionAndFileNames;
     }
 
     void dumpFile(std::string& body, std::string& currHash, std::unordered_set<std::string>* refRelations,
@@ -279,6 +281,91 @@ public:
 
 	ofs.flush();
 	ofs.close();
+    }
+
+    void dumpAllFiles2(const std::string& directory) {
+	curr_os->flush();
+	std::string currBody = curr_os->str();
+	functionBodies.push_back(currBody);
+	referencedRelations.push_back(currReferencedRelations);
+	delete curr_os;
+
+	int maxFiles = 200;
+
+	std::vector<std::set<std::string>*> fileBins;
+	std::vector<std::unordered_set<std::string>*> fileReferencedRelations;
+	for (int i = 0; i < maxFiles; ++i) {
+	    fileBins.push_back(new std::set<std::string>());
+	    fileReferencedRelations.push_back(new std::unordered_set<std::string>());
+	}
+
+	size_t numFuns = functionBodies.size();
+	for (size_t i = 0; i < numFuns; ++i) {
+	    size_t codeHash = std::hash<std::string>{}(functionBodies[i]);
+	    fileBins[codeHash % maxFiles]->insert(functionBodies[i]);
+	    for (auto it = referencedRelations[i]->begin(); it != referencedRelations[i]->end(); ++it)
+		fileReferencedRelations[codeHash % maxFiles]->insert(*it);
+	}
+
+	std::vector<std::ofstream*> fileStreams;
+	std::vector<std::string> fileNames;
+	for (int i = 0; i < maxFiles; ++i) {
+	    std::string hash = "";
+	    for (auto it = fileBins[i]->begin(); it != fileBins[i]->end(); ++it) {
+		hash += sha256(*it);
+	    }
+	    fileNames.push_back(directory + "/" + sha256(hash) + ".cpp");
+	    fileStreams.push_back(new std::ofstream(directory + "/" + sha256(hash) + ".cpp"));
+	}
+
+	for (int i = 0; i < maxFiles; ++i) {
+	    dumpFile2(fileBins[i], fileStreams[i], fileReferencedRelations[i],
+		      fileNames[i]);
+	}
+    }
+
+    void dumpFile2(std::set<std::string>* funs, std::ofstream* ofs,
+		   std::unordered_set<std::string>* refRelations, std::string& currFile) {
+	*ofs << "#include \"souffle/CompiledSouffle.h\"\n\n";
+	if (Global::config().has("provenance")) {
+	    *ofs << "#include \"souffle/Explain.h\"\n";
+	    *ofs << "#include \"<ncurses.h>\"\n\n";
+	}
+
+	*ofs << "namespace souffle {\n";
+	*ofs << "using namespace ram;\n";
+
+	// Extern definitions for relation variables
+	for (auto it = refRelations->begin(); it != refRelations->end(); ++it)
+	    *ofs << "extern " << relTypes->at(*it) << "* " << *it << ";\n";
+	delete refRelations;
+	*ofs << "extern SymbolTable symTable;\n";
+	*ofs << "inline bool regex_wrapper(const char *pattern, const char *text);\n";
+	*ofs << "inline bool substr_wrapper(const char *str, size_t idx, size_t len);\n";
+
+
+	*ofs << "\n";
+	for (auto it = funs->begin(); it != funs->end(); ++it) {
+	    std::string currFunction = "fun_" + sha256(*it);
+	    functionAndFileNames.push_back(std::make_pair(currFunction, currFile));
+	    *ofs << "template <bool performIO> void " << currFunction
+		 << "(std::string inputDirectory = \".\", "
+		 << "std::string outputDirectory = \".\") {\n";
+	    // Dump the function body
+	    *ofs << *it;
+
+	    *ofs << "\n}\n";
+	    *ofs << "template void " << currFunction <<
+		"<true>(std::string inputDirectory, std::string outputDirectory);\n";
+	}
+	*ofs << "\n}\n";
+
+	ofs->flush();
+	ofs->close();
+    }
+
+    std::vector<std::pair<std::string, std::string>> getFunctionAndFileNames() {
+	return functionAndFileNames;
     }
 
     inline const std::string getRelationNameInternal(const RamRelation& rel) {
@@ -1372,9 +1459,6 @@ private:
     }
 };
 
-    int CodeEmitter::fileCounter = 0;
-
-
     std::vector<std::pair<std::string, std::string>> genCode(std::unordered_map<std::string, std::string>* relTypes,
 							     const std::string& directory, const RamStatement& stmt) {
 	CodeEmitter ce(relTypes);
@@ -1423,7 +1507,7 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     hppos << "\n";
     hppos << "namespace souffle {\n";
     hppos << "using namespace ram;\n";
-    cppos << "#include \"" << hppFilename << "\"\n";
+    cppos << "#include \"" << id + ".hpp" << "\"\n";
     cppos << "namespace souffle {\n";
     cppos << "using namespace ram;\n";
 
