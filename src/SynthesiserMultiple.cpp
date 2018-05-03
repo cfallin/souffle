@@ -31,6 +31,7 @@
 #include "SignalHandler.h"
 #include "TypeSystem.h"
 #include "UnaryFunctorOps.h"
+#include "CPPIdentifierMap.h"
 
 #include "picosha2.h"
 
@@ -48,80 +49,7 @@
 #endif
 
 namespace souffle {
-
-/**
- * A singleton which provides a mapping from strings to unique valid CPP identifiers.
- */
-class CPPIdentifierMap {
-public:
-    /**
-     * Obtains the singleton instance.
-     */
-    static CPPIdentifierMap& getInstance() {
-        if (instance == nullptr) {
-            instance = new CPPIdentifierMap();
-        }
-        return *instance;
-    }
-
-    /**
-     * Given a string, returns its corresponding unique valid identifier;
-     */
-    static std::string getIdentifier(const std::string& name) {
-        return getInstance().identifier(name);
-    }
-
-    ~CPPIdentifierMap() = default;
-
-private:
-    CPPIdentifierMap() {}
-
-    static CPPIdentifierMap* instance;
-
-    /**
-     * Instance method for getIdentifier above.
-     */
-    const std::string identifier(const std::string& name) {
-        auto it = identifiers.find(name);
-        if (it != identifiers.end()) {
-            return it->second;
-        }
-        // strip leading numbers
-        unsigned int i;
-        for (i = 0; i < name.length(); ++i) {
-            if (isalnum(name.at(i)) || name.at(i) == '_') {
-                break;
-            }
-        }
-        std::string id;
-        for (auto ch : std::to_string(identifiers.size() + 1) + '_' + name.substr(i)) {
-            // alphanumeric characters are allowed
-            if (isalnum(ch)) {
-                id += ch;
-            }
-            // all other characters are replaced by an underscore, except when
-            // the previous character was an underscore as double underscores
-            // in identifiers are reserved by the standard
-            else if (id.size() == 0 || id.back() != '_') {
-                id += '_';
-            }
-        }
-        // most compilers have a limit of 2048 characters (if they have a limit at all) for
-        // identifiers; we use half of that for safety
-        id = id.substr(0, 1024);
-        identifiers.insert(std::make_pair(name, id));
-        return id;
-    }
-
-    // The map of identifiers.
-    std::map<const std::string, const std::string> identifiers;
-};
-
-// See the CPPIdentifierMap, (it is a singleton class).
-CPPIdentifierMap* CPPIdentifierMap::instance = nullptr;
-
 namespace {
-
 static const char ENV_NO_INDEX[] = "SOUFFLE_USE_NO_INDEX";
 
 bool useNoIndex() {
@@ -251,7 +179,7 @@ class CodeEmitter : public RamVisitor<void, int> {
     std::unordered_set<std::string> *currReferencedRelations;
     std::unordered_map<std::string, std::string>* relTypes;
     std::vector<std::string> functionBodies;
-    std::vector<std::string> functionNames;
+    std::vector<std::pair<std::string, std::string>> functionAndFileNames;
 
 public:
     static const int maxFileSize = 1;
@@ -294,29 +222,29 @@ public:
 	return hash_hex_str;
     }
 
-    void dumpAllFiles() {
+    void dumpAllFiles(const std::string& directory) {
 	curr_os->flush();
 	std::string currBody = curr_os->str();
 	functionBodies.push_back(currBody);
 	referencedRelations.push_back(currReferencedRelations);
 	delete curr_os;
 
-	std::string currHash = sha256(functionBodies[0]);
-	std::string nextHash = "";
+	std::string currHash;
 	size_t numFuns = functionBodies.size();
 	for (size_t i = 0; i < numFuns; ++i) {
-	    if (i + 1 < numFuns) nextHash = sha256(functionBodies[i + 1]);
-	    else nextHash = "";
-	    dumpFile(functionBodies[i], currHash, nextHash, referencedRelations[i], (i == 0));
-	    currHash = nextHash;
+	    currHash = sha256(functionBodies[i]);
+	    dumpFile(functionBodies[i], currHash, referencedRelations[i], directory);
 	}
     }
 
-    std::vector<std::string> getFunctionNames() { return functionNames; }
+    std::vector<std::pair<std::string, std::string>> getFunctionAndFileNames() {
+	return functionAndFileNames;
+    }
 
-    void dumpFile(std::string& body, std::string& currHash, std::string& nextHash,
-		  std::unordered_set<std::string>* refRelations, bool first) {
-	std::ofstream ofs(currHash + ".cpp");
+    void dumpFile(std::string& body, std::string& currHash, std::unordered_set<std::string>* refRelations,
+		  const std::string& directory) {
+	std::string currFile = directory + "/" + currHash + ".cpp";
+	std::ofstream ofs(currFile);
 	ofs << "#include \"souffle/CompiledSouffle.h\"\n\n";
 	if (Global::config().has("provenance")) {
 	    ofs << "#include \"souffle/Explain.h\"\n";
@@ -325,11 +253,6 @@ public:
 
 	ofs << "namespace souffle {\n";
 	ofs << "using namespace ram;\n";
-	std::string newFunction = "fun_" + nextHash;
-	// if (nextHash.size() != 0)
-	    // ofs << "template <bool performIO> void " << newFunction
-		// << "(std::string inputDirectory = \".\", "
-		// << "std::string outputDirectory = \".\");\n";
 
 	// Extern definitions for relation variables
 	for (auto it = refRelations->begin(); it != refRelations->end(); ++it)
@@ -342,15 +265,12 @@ public:
 
 	ofs << "\n";
 	std::string currFunction = "fun_" + currHash;
-	functionNames.push_back(currFunction);
+	functionAndFileNames.push_back(std::make_pair(currFunction, currFile));
 	ofs << "template <bool performIO> void " << currFunction
 	    << "(std::string inputDirectory = \".\", "
 	    << "std::string outputDirectory = \".\") {\n";
 	// Dump the function body
 	ofs << body;
-
-	// if (nextHash.size() != 0)
-	    // ofs << newFunction << "<performIO>(inputDirectory, outputDirectory);\n";
 
 	ofs << "\n}\n";
 	ofs << "template void " << currFunction <<
@@ -361,13 +281,13 @@ public:
 	ofs.close();
     }
 
-public:
     inline const std::string getRelationNameInternal(const RamRelation& rel) {
 	std::string relName = getRelationName(rel);
 	currReferencedRelations->insert(relName);
 	return relName;
     }
 
+public:
     // -- relation statements --
 
     void visitCreate(const RamCreate& /*create*/, int) override {
@@ -1455,18 +1375,19 @@ private:
     int CodeEmitter::fileCounter = 0;
 
 
-    std::vector<std::string> genCode(std::unordered_map<std::string, std::string>* relTypes, const RamStatement& stmt) {
+    std::vector<std::pair<std::string, std::string>> genCode(std::unordered_map<std::string, std::string>* relTypes,
+							     const std::string& directory, const RamStatement& stmt) {
 	CodeEmitter ce(relTypes);
 	ce.visit(stmt, 0);
-	ce.dumpAllFiles();
-	return ce.getFunctionNames();
+	ce.dumpAllFiles(directory);
+	return ce.getFunctionAndFileNames();
     }
 }  // namespace
 
 std::vector<std::string>* SynthesiserMultiple::generateCode(
-    const RamTranslationUnit& unit, const std::string& id, const std::string& baseFilename) const {
-    std::string cppFilename = baseFilename + ".cpp";
-    std::string hppFilename = baseFilename + ".hpp";
+    const RamTranslationUnit& unit, const std::string& id, const std::string& baseFilename, const std::string& directory) const {
+    std::string cppFilename = directory + "/" + id + ".cpp";
+    std::string hppFilename = directory + "/" + id + ".hpp";
     std::ofstream cppos(cppFilename);
     std::ofstream hppos(hppFilename);
 
@@ -1697,17 +1618,17 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     // -- run function --
 
     // generate code for the actual program body
-    std::vector<std::string> functionNames;
+    std::vector<std::pair<std::string, std::string>> functionAndFileNames;
     if (Global::config().has("profile")) {
         cppos << "std::ofstream profile(profiling_fname);\n";
         cppos << "profile << \"" << AstLogStatement::startDebug() << "\" << std::endl;\n";
-        functionNames = genCode(relTypes, *(prog.getMain()));
+        functionAndFileNames = genCode(relTypes, directory, *(prog.getMain()));
     } else {
-        functionNames = genCode(relTypes, *(prog.getMain()));
+        functionAndFileNames = genCode(relTypes, directory, *(prog.getMain()));
     }
 
-    for (int i = 0; i < functionNames.size(); ++i)
-	cppos << "template <bool performIO> void " << functionNames[i] << "(std::string, std::string);\n";
+    for (auto it = functionAndFileNames.begin(); it != functionAndFileNames.end(); ++it)
+	cppos << "template <bool performIO> void " << it->first << "(std::string, std::string);\n";
 
     hppos << "private:\ntemplate <bool performIO> void runFunction(std::string inputDirectory = \".\", "
 	"std::string outputDirectory = \".\");\n";
@@ -1728,8 +1649,8 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     }
 
     cppos << "// -- query evaluation --\n";
-    for (int i = 0; i < functionNames.size(); ++i)
-	cppos << functionNames[i] << "<performIO>(inputDirectory, outputDirectory);\n";
+    for (auto it = functionAndFileNames.begin(); it != functionAndFileNames.end(); ++it)
+	cppos << it->first << "<performIO>(inputDirectory, outputDirectory);\n";
 
     // add code printing hint statistics
     cppos << "\n// -- relation hint statistics --\n";
@@ -1910,7 +1831,7 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
                                                   "std::vector<RamDomain>& ret, std::vector<bool>& err) {\n";
 
             // generate code for body
-            genCode(relTypes, *sub.second);
+            genCode(relTypes, directory, *sub.second);
 
             cppos << "return;\n";
             cppos << "}\n";  // end of subroutine
@@ -1970,10 +1891,9 @@ std::vector<std::string>* SynthesiserMultiple::generateCode(
     cppos.close();
 
     std::vector<std::string>* allCppFiles = new std::vector<std::string>();
-    // allCppFiles->push_back(cppFilename);
-    // for (int i = 0; i < numRunFuns; ++i) {
-	// allCppFiles->push_back(baseFilename + "_run" + std::to_string(i) + ".cpp");
-    // }
+    for (auto it = functionAndFileNames.begin(); it < functionAndFileNames.end(); ++it) {
+	allCppFiles->push_back(it->second);
+    }
     return allCppFiles;
 }
 }  // end of namespace souffle

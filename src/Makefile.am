@@ -98,6 +98,8 @@ souffle_sources = \
               Synthesiser.cpp       Synthesiser.h       \
               SynthesiserMultiple.cpp                   \
               SynthesiserMultiple.h                     \
+              CPPIdentifierMap.cpp                      \
+              CPPIdentifierMap.h                        \
               RamAnalysis.h                             \
               RamCondition.h                            \
               RamNode.h                                 \

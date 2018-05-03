@@ -174,6 +174,9 @@ int main(int argc, char** argv) {
                             {"generate", 'g', "FILE", "", false,
                                     "Generate C++ source code for the given Datalog program and write it to "
                                     "<FILE>."},
+                            {"generate-multiple", 'x', "DIRECTORY", "", false,
+                                    "Generate multiple C++ files for the given Datalog program in the directory "
+                                    "<DIRECTORY>."},
                             {"no-warn", 'w', "", "", false, "Disable warnings."},
                             {"magic-transform", 'm', "RELATIONS", "", false,
                                     "Enable magic set transformation changes on the given relations, use '*' "
@@ -228,9 +231,14 @@ int main(int argc, char** argv) {
         /* if an output directory is given, check it exists */
         if (Global::config().has("output-dir") && !Global::config().has("output-dir", "-") &&
                 !existDir(Global::config().get("output-dir")) &&
-                !(Global::config().has("generate") ||
+                !(Global::config().has("generate") || Global::config().has("generate-multitple") ||
                         (Global::config().has("dl-program") && !Global::config().has("compile")))) {
             ERROR("output directory " + Global::config().get("output-dir") + " does not exists");
+        }
+
+	/* if asked to generate multiple files, ensure the given directory exists */
+        if (Global::config().has("generate-multiple") && !existDir(Global::config().get("generate-multiple"))) {
+            ERROR("source output directory " + Global::config().get("generate-multiple") + " does not exists");
         }
 
         /* ensure that if auto-scheduling is enabled an output file is given */
@@ -471,7 +479,7 @@ int main(int argc, char** argv) {
     };
 
     if (!Global::config().has("compile") && !Global::config().has("dl-program") &&
-            !Global::config().has("generate")) {
+            !Global::config().has("generate") && !Global::config().has("generate-multiple")) {
         // ------- interpreter -------------
 
         // configure interpreter
@@ -504,8 +512,6 @@ int main(int argc, char** argv) {
         }
         compileCmd += " ";
 
-        std::unique_ptr<SynthesiserMultiple> synthesiser = std::make_unique<SynthesiserMultiple>();
-
         try {
             // Find the base filename for code generation and execution
             std::string baseFilename;
@@ -517,7 +523,9 @@ int main(int argc, char** argv) {
                 if (baseFilename.size() >= 4 && baseFilename.substr(baseFilename.size() - 4) == ".cpp") {
                     baseFilename = baseFilename.substr(0, baseFilename.size() - 4);
                 }
-            } else {
+            } else if (Global::config().has("generate-multiple")) {
+		baseFilename = simpleName(Global::config().get(""));
+	    } else {
                 baseFilename = tempFile();
             }
             if (baseName(baseFilename) == "/" || baseName(baseFilename) == ".") {
@@ -525,10 +533,22 @@ int main(int argc, char** argv) {
             }
 
             std::string baseIdentifier = identifier(simpleName(baseFilename));
-            std::string sourceFilename = baseFilename + ".cpp";
 
-	    std::vector<std::string>* allCppFiles =
-		synthesiser->generateCode(*ramTranslationUnit, baseIdentifier, baseFilename);
+	    std::vector<std::string>* allCppFiles;
+	    if (Global::config().has("generate-multiple")) {
+		std::string directory = Global::config().get("generate-multiple");
+		std::unique_ptr<SynthesiserMultiple> synthesiser = std::make_unique<SynthesiserMultiple>();
+		allCppFiles =
+		    synthesiser->generateCode(*ramTranslationUnit, baseIdentifier, baseFilename, directory);
+	    }
+	    else {
+		std::string sourceFilename = baseFilename + ".cpp";
+		std::ofstream os(sourceFilename);
+		std::unique_ptr<Synthesiser> synthesiser = std::make_unique<Synthesiser>();
+		synthesiser->generateCode(*ramTranslationUnit, os, baseIdentifier);
+		os.close();
+		allCppFiles = new std::vector<std::string>({ sourceFilename });
+	    }
 
             if (Global::config().has("compile")) {
                 compileToBinary(compileCmd, allCppFiles);

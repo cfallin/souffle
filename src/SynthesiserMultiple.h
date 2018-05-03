@@ -29,7 +29,6 @@
 #include <vector>
 
 namespace souffle {
-
 /**
  * A RAM synthesiser: synthesises a C++ program from a RAM program.
  */
@@ -45,6 +44,7 @@ public:
      * @param os the stream to send the generated C++ code to.
      * @param id the base identifier used in code generation, including class name.
      */
-    std::vector<std::string>* generateCode(const RamTranslationUnit& tu, const std::string& id, const std::string& baseFileName) const;
+    std::vector<std::string>* generateCode(const RamTranslationUnit& tu, const std::string& id,
+					   const std::string& baseFileName, const std::string& directory) const;
 };
 }  // end of namespace souffle
