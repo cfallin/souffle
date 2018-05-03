@@ -173,6 +173,7 @@ class CodeEmitter : public RamVisitor<void, int> {
     std::function<void(std::ostream&, const RamNode*)> rec;
     int indentLevel = 0;
     int fileSize = 0;
+    int maxFiles = 200;
     std::ostringstream* curr_os;
     std::vector<std::unordered_set<std::string>*> referencedRelations;
     std::unordered_set<std::string> *currReferencedRelations;
@@ -291,8 +292,6 @@ public:
 	referencedRelations.push_back(currReferencedRelations);
 	delete curr_os;
 
-	int maxFiles = 1;
-
 	// Compute function names for all the functions
 	std::unordered_map<std::string, std::string> functionNames;
 	size_t numFuns = functionBodies.size();
@@ -356,7 +355,6 @@ public:
 	ofs << "extern SymbolTable symTable;\n";
 	ofs << "inline bool regex_wrapper(const char *pattern, const char *text);\n";
 	ofs << "inline bool substr_wrapper(const char *str, size_t idx, size_t len);\n";
-
 
 	ofs << "\n";
 	for (auto it = funs->begin(); it != funs->end(); ++it) {
