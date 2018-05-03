@@ -233,6 +233,7 @@ public:
 	size_t numFuns = functionBodies.size();
 	for (size_t i = 0; i < numFuns; ++i) {
 	    currHash = sha256(functionBodies[i]);
+	    std::cerr << currHash << std::endl;
 	    if (hashes.find(currHash) != hashes.end()) {
 		std::cerr << "File hash collision!";
 		currHash += std::to_string(i);
@@ -290,8 +291,16 @@ public:
 	referencedRelations.push_back(currReferencedRelations);
 	delete curr_os;
 
-	int maxFiles = 200;
+	int maxFiles = 1;
 
+	// Compute function names for all the functions
+	std::unordered_map<std::string, std::string> functionNames;
+	size_t numFuns = functionBodies.size();
+	for (size_t i = 0; i < numFuns ; ++i) {
+	    functionNames[functionBodies[i]] = "fun_" + sha256(functionBodies[i]);
+	}
+
+	// init file data structures
 	std::vector<std::set<std::string>*> fileBins;
 	std::vector<std::unordered_set<std::string>*> fileReferencedRelations;
 	for (int i = 0; i < maxFiles; ++i) {
@@ -299,69 +308,73 @@ public:
 	    fileReferencedRelations.push_back(new std::unordered_set<std::string>());
 	}
 
-	size_t numFuns = functionBodies.size();
+	// Bin functions into files
 	for (size_t i = 0; i < numFuns; ++i) {
 	    size_t codeHash = std::hash<std::string>{}(functionBodies[i]);
-	    fileBins[codeHash % maxFiles]->insert(functionBodies[i]);
+	    int fileId = codeHash % maxFiles;
+	    fileBins[fileId]->insert(functionBodies[i]);
 	    for (auto it = referencedRelations[i]->begin(); it != referencedRelations[i]->end(); ++it)
-		fileReferencedRelations[codeHash % maxFiles]->insert(*it);
+		fileReferencedRelations[fileId]->insert(*it);
 	}
 
-	std::vector<std::ofstream*> fileStreams;
-	std::vector<std::string> fileNames;
+	// compute file names from functions in them
+	std::unordered_map<std::string, std::string> functionFileNames;
 	for (int i = 0; i < maxFiles; ++i) {
 	    std::string hash = "";
 	    for (auto it = fileBins[i]->begin(); it != fileBins[i]->end(); ++it) {
-		hash += sha256(*it);
+		hash += functionNames[*it];
 	    }
-	    fileNames.push_back(directory + "/" + sha256(hash) + ".cpp");
-	    fileStreams.push_back(new std::ofstream(directory + "/" + sha256(hash) + ".cpp"));
+	    std::string fileName = directory + "/" + sha256(hash) + ".cpp";
+	    for (auto it = fileBins[i]->begin(); it != fileBins[i]->end(); ++it) {
+		functionFileNames[sha256(*it)] = fileName;
+	    }
+	    dumpFile2(fileBins[i], fileReferencedRelations[i], fileName, functionNames);
 	}
 
-	for (int i = 0; i < maxFiles; ++i) {
-	    dumpFile2(fileBins[i], fileStreams[i], fileReferencedRelations[i],
-		      fileNames[i]);
+	for (size_t i = 0; i < numFuns; ++i) {
+	    std::string funSha = "fun_" + sha256(functionBodies[i]);
+	    functionAndFileNames.push_back(std::make_pair(funSha, functionFileNames[funSha]));
 	}
     }
 
-    void dumpFile2(std::set<std::string>* funs, std::ofstream* ofs,
-		   std::unordered_set<std::string>* refRelations, std::string& currFile) {
-	*ofs << "#include \"souffle/CompiledSouffle.h\"\n\n";
+    void dumpFile2(std::set<std::string>* funs, std::unordered_set<std::string>* refRelations,
+		   std::string& currFile, std::unordered_map<std::string, std::string>& functionNames) {
+	std::ofstream ofs(currFile);
+	ofs << "#include \"souffle/CompiledSouffle.h\"\n\n";
 	if (Global::config().has("provenance")) {
-	    *ofs << "#include \"souffle/Explain.h\"\n";
-	    *ofs << "#include \"<ncurses.h>\"\n\n";
+	    ofs << "#include \"souffle/Explain.h\"\n";
+	    ofs << "#include \"<ncurses.h>\"\n\n";
 	}
 
-	*ofs << "namespace souffle {\n";
-	*ofs << "using namespace ram;\n";
+	ofs << "namespace souffle {\n";
+	ofs << "using namespace ram;\n";
 
 	// Extern definitions for relation variables
 	for (auto it = refRelations->begin(); it != refRelations->end(); ++it)
-	    *ofs << "extern " << relTypes->at(*it) << "* " << *it << ";\n";
+	    ofs << "extern " << relTypes->at(*it) << "* " << *it << ";\n";
 	delete refRelations;
-	*ofs << "extern SymbolTable symTable;\n";
-	*ofs << "inline bool regex_wrapper(const char *pattern, const char *text);\n";
-	*ofs << "inline bool substr_wrapper(const char *str, size_t idx, size_t len);\n";
+	ofs << "extern SymbolTable symTable;\n";
+	ofs << "inline bool regex_wrapper(const char *pattern, const char *text);\n";
+	ofs << "inline bool substr_wrapper(const char *str, size_t idx, size_t len);\n";
 
 
-	*ofs << "\n";
+	ofs << "\n";
 	for (auto it = funs->begin(); it != funs->end(); ++it) {
-	    std::string currFunction = "fun_" + sha256(*it);
-	    functionAndFileNames.push_back(std::make_pair(currFunction, currFile));
-	    *ofs << "template <bool performIO> void " << currFunction
+	    std::string currFunction = functionNames[*it];
+	    ofs << "template <bool performIO> void " << currFunction
 		 << "(std::string inputDirectory = \".\", "
 		 << "std::string outputDirectory = \".\") {\n";
 	    // Dump the function body
-	    *ofs << *it;
+	    ofs << *it;
 
-	    *ofs << "\n}\n";
-	    *ofs << "template void " << currFunction <<
+	    ofs << "\n}\n";
+	    ofs << "template void " << currFunction <<
 		"<true>(std::string inputDirectory, std::string outputDirectory);\n";
 	}
-	*ofs << "\n}\n";
+	ofs << "\n}\n";
 
-	ofs->flush();
-	ofs->close();
+	ofs.flush();
+	ofs.close();
     }
 
     std::vector<std::pair<std::string, std::string>> getFunctionAndFileNames() {
@@ -1463,7 +1476,7 @@ private:
 							     const std::string& directory, const RamStatement& stmt) {
 	CodeEmitter ce(relTypes);
 	ce.visit(stmt, 0);
-	ce.dumpAllFiles(directory);
+	ce.dumpAllFiles2(directory);
 	return ce.getFunctionAndFileNames();
     }
 }  // namespace
