@@ -121,6 +121,11 @@ void RamScan::print(std::ostream& os, int tabpos) const {
                 }
             }
         }
+	if (minCount) {
+	    os << " MINCOUNT ";
+	    minCount->print(os);
+	    os << " ";
+	}
     } else {
         if (keys == 0) {
             os << "SCAN " << relation->getName() << " AS t" << level << " ";
