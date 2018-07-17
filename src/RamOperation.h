@@ -191,8 +191,8 @@ public:
             : RamSearch(RN_Scan, std::move(nested)), relation(std::move(r)),
               queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck) {}
 
-    void addMinCount(std::unique_ptr<RamValue> minCount) {
-	this->minCount = minCount;
+    void setMinCount(std::unique_ptr<RamValue> minCount) {
+	this->minCount = std::move(minCount);
     }
 
     /** Get search relation */
@@ -217,7 +217,7 @@ public:
     }
 
     RamValue* getMinCount() const {
-	return minCount;
+	return minCount.get();
     }
 
     /** Print */

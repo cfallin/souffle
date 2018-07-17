@@ -174,7 +174,7 @@ std::unique_ptr<RamRelation> getRamRelation(const AstRelation* rel, const TypeEn
 
     return std::unique_ptr<RamRelation>(new RamRelation(name, arity, attributeNames, attributeTypeQualifiers,
             getSymbolMask(*rel, *typeEnv), rel->isInput(), rel->isComputed(), rel->isOutput(), rel->isBTree(),
-	    rel->isRbtset(), rel->isHashset(), rel->isBrie(), rel->isEqRel(), rel->isData(), istemp, rel->isForall()));
+	    rel->isRbtset(), rel->isHashset(), rel->isBrie(), rel->isEqRel(), rel->isData(), istemp));
 }
 
 std::unique_ptr<RamRelation> getRamRelation(const AstRelation* rel, const TypeEnvironment* typeEnv) {
@@ -502,6 +502,9 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                 } else if (auto atom = dynamic_cast<const AstAtom*>(curNode)) {
                     nodeArgs.insert(
                             std::make_pair(curNode, std::make_unique<arg_list>(atom->getArguments())));
+		    if (atom->getMinCount()) {
+			nodeArgs[curNode]->push_back(atom->getMinCount());
+		    }
                 } else {
                     assert(false && "node type doesn't have arguments!");
                 }
@@ -728,6 +731,11 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                                     new RamElementAccess(loc.level, loc.component, loc.name)))));
                 }
             }
+
+	    if (atom->getMinCount()) {
+		dynamic_cast<RamScan*>(op.get())->setMinCount(
+		    translateValue(atom->getMinCount(), valueIndex));
+	    }
 
             // TODO: support constants in nested records!
         } else if (const AstRecordInit* rec = dynamic_cast<const AstRecordInit*>(cur)) {
