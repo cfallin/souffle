@@ -486,18 +486,48 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 
             // if this scan is not binding anything ...
             if (scan.isPureExistenceCheck()) {
-                if (range.first != range.second) {
-                    visitSearch(scan);
-                }
+		// is there a min count constraint? if so, scan over
+		// range and evaluate condition, counting matches.
+		if (scan.getMinCount()) {
+		    RamDomain minCount = eval(scan.getMinCount(), env, ctxt);
+		    RamDomain count = 0;
+		    for (auto ip = range.first; ip != range.second; ++ip) {
+			const RamDomain* data = *(ip);
+			ctxt[scan.getLevel()] = data;
+			count++;
+		    }
+		    if (count >= minCount) {
+			visit(*scan.getNestedOperation());
+		    }
+		} else {
+		    // Otherwise, just an existence check, so any
+		    // non-empty range will match the query.
+		    if (range.first != range.second) {
+			visitSearch(scan);
+		    }
+		}
                 return;
             }
 
-            // conduct range query
-            for (auto ip = range.first; ip != range.second; ++ip) {
-                const RamDomain* data = *(ip);
-                ctxt[scan.getLevel()] = data;
-                visitSearch(scan);
-            }
+	    if (scan.getMinCount()) {
+		RamDomain minCount = eval(scan.getMinCount(), env, ctxt);
+		RamDomain count = 0;
+		for (auto ip = range.first; ip != range.second; ++ip) {
+		    const RamDomain* data = *(ip);
+		    ctxt[scan.getLevel()] = data;
+		    count++;
+		}
+		if (count >= minCount) {
+		    visit(*scan.getNestedOperation());
+		}
+	    } else {
+		// conduct range query
+		for (auto ip = range.first; ip != range.second; ++ip) {
+		    const RamDomain* data = *(ip);
+		    ctxt[scan.getLevel()] = data;
+		    visitSearch(scan);
+		}
+	    }
         }
 
         void visitLookup(const RamLookup& lookup) override {

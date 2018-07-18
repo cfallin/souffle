@@ -104,7 +104,6 @@
 %token OVERRIDABLE_QUALIFIER     "relation qualifier overidable"
 %token INLINE_QUALIFIER          "relation qualifier inline"
 %token NONSTRAT_QUALIFIER        "relation qualifier nonstrat"
-%token FORALL_QUALIFIER          "relation qualifier forall"
 %token TMATCH                    "match predicate"
 %token TCONTAINS                 "checks whether substring is contained in a string"
 %token CAT                       "concatenation of two strings"
@@ -174,6 +173,7 @@
 %token ATANH                     "atanh"
 %token LOG                       "log"
 %token EXP                       "exp"
+%token MINCOUNT                  "mincount"
 
 %type <uint32_t>                         qualifiers
 %type <AstTypeIdentifier *>              type_id
@@ -408,10 +408,6 @@ qualifiers
   | qualifiers NONSTRAT_QUALIFIER {
         if ($1 & NONSTRAT_RELATION) driver.error(@2, "nonstrat qualifier already set");
         $$ = $1 | NONSTRAT_RELATION;
-    }
-  | qualifiers FORALL_QUALIFIER {
-        if ($1 & FORALL_RELATION) driver.error(@2, "forall qualifier already set");
-        $$ = $1 | FORALL_RELATION;
     }
   | %empty {
         $$ = 0;
@@ -806,6 +802,13 @@ atom
         $3->setName(*$1);
         delete $1;
         $$->setSrcLoc(@$);
+    }
+  | MINCOUNT LPAREN rel_id LPAREN arg_list RPAREN COMMA arg RPAREN {
+        $$ = $5;               // arg_list
+	$$->setName(*$3);      // rel_id
+	delete $3;             // rel_id
+	$$->setSrcLoc(@$);
+	$$->setMinCount($8);   // arg (min count)
     }
 
 /* Literal */

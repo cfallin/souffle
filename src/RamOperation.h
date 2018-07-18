@@ -174,6 +174,9 @@ protected:
     /** Indexable columns for a range query */
     SearchColumns keys;
 
+    /** Minimum count desired, if existence check */
+    std::unique_ptr<RamValue> minCount;
+
     /**
      * Determines whether this scan operation is merely verifying the existence
      * of a value (e.g. rel(_,_), rel(1,2), rel(1,_) or rel(X,Y) where X and Y are bound)
@@ -187,6 +190,10 @@ public:
     RamScan(std::unique_ptr<RamRelation> r, std::unique_ptr<RamOperation> nested, bool pureExistenceCheck)
             : RamSearch(RN_Scan, std::move(nested)), relation(std::move(r)),
               queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck) {}
+
+    void setMinCount(std::unique_ptr<RamValue> minCount) {
+	this->minCount = std::move(minCount);
+    }
 
     /** Get search relation */
     const RamRelation& getRelation() const {
@@ -209,6 +216,10 @@ public:
         return pureExistenceCheck;
     }
 
+    RamValue* getMinCount() const {
+	return minCount.get();
+    }
+
     /** Print */
     void print(std::ostream& os, int tabpos) const override;
 
@@ -223,6 +234,9 @@ public:
                 res.push_back(cur.get());
             }
         }
+	if (minCount) {
+	    res.push_back(minCount.get());
+	}
         return res;
     }
 
@@ -237,6 +251,9 @@ public:
                 res->queryPattern.push_back(std::unique_ptr<RamValue>(cur->clone()));
             }
         }
+	if (minCount) {
+	    res->minCount = std::unique_ptr<RamValue>(minCount->clone());
+	}
         return res;
     }
 
@@ -248,6 +265,9 @@ public:
                 cur = map(std::move(cur));
             }
         }
+	if (minCount) {
+	    minCount = map(std::move(minCount));
+	}
     }
 
 protected:

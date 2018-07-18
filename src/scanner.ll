@@ -115,7 +115,6 @@
 "hashset"                             { return yy::parser::make_HASHSET_QUALIFIER(yylloc); }
 "inline"                              { return yy::parser::make_INLINE_QUALIFIER(yylloc); }
 "nonstrat"			      { return yy::parser::make_NONSTRAT_QUALIFIER(yylloc); }
-"forall"			      { return yy::parser::make_FORALL_QUALIFIER(yylloc); }
 "brie"                                { return yy::parser::make_BRIE_QUALIFIER(yylloc); }
 "btree"                               { return yy::parser::make_BTREE_QUALIFIER(yylloc); }
 "min"                                 { return yy::parser::make_MIN(yylloc); }
@@ -126,6 +125,7 @@
 "sum"                                 { return yy::parser::make_SUM(yylloc); }
 ".strict"                             { return yy::parser::make_STRICT(yylloc); }
 ".plan"                               { return yy::parser::make_PLAN(yylloc); }
+"mincount"                            { return yy::parser::make_MINCOUNT(yylloc); }
 "|"                                   { return yy::parser::make_PIPE(yylloc); }
 "["                                   { return yy::parser::make_LBRACKET(yylloc); }
 "]"                                   { return yy::parser::make_RBRACKET(yylloc); }
