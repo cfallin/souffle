@@ -661,13 +661,7 @@ public:
         if (scan.isPureExistenceCheck()) {
 	    if (scan.getMinCount()) {
 		out << "for(const auto& env" << level << " : range) {\n";
-		if (scan.getCondition()) {
-		    out << "if(";
-		    out << this->print(scan.getCondition());
-		    out << ") { count++; }\n";
-		} else {
-		    out << "count++;\n";
-		}
+		out << "count++;\n";
 		out << "}\n";
 		out << "if(count >= minCount) {\n";
 		out << print(scan.getNestedOperation());
@@ -678,9 +672,18 @@ public:
 		out << "}\n";
 	    }
         } else {
-            out << "for(const auto& env" << level << " : range) {\n";
-	    visitSearch(scan, out);
-	    out << "}\n";
+	    if (scan.getMinCount()) {
+		out << "for(const auto& env" << level << " : range) {\n";
+		out << "count++;\n";
+		out << "}\n";
+		out << "if(count >= minCount) {\n";
+		out << print(scan.getNestedOperation());
+		out << "}\n";
+	    } else {
+		out << "for(const auto& env" << level << " : range) {\n";
+		visitSearch(scan, out);
+		out << "}\n";
+	    }
         }
         PRINT_END_COMMENT(out);
     }

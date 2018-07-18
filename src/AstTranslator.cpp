@@ -1047,6 +1047,11 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                     continue;
                 }
 
+		// skip mincount atoms
+		if (atom->getMinCount()) {
+		    continue;
+		}
+
                 // modify the processed rule to use relDelta and write to relNew
                 std::unique_ptr<AstClause> r1(cl->clone());
                 r1->getHead()->setName(relNew[rel]->getName());
@@ -1061,6 +1066,10 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                 // reduce R to P ...
                 for (size_t k = j + 1; k < atoms.size(); k++) {
                     if (isInSameSCC(getAtomRelation(atoms[k], program))) {
+			// skip mincount atoms
+			if (r1->getAtoms()[k]->getMinCount()) {
+			    continue;
+			}
                         AstAtom* cur = r1->getAtoms()[k]->clone();
                         cur->setName(relDelta[getAtomRelation(atoms[k], program)]->getName());
                         r1->addToBody(std::make_unique<AstNegation>(std::unique_ptr<AstAtom>(cur)));

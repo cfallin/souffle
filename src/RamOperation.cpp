@@ -147,6 +147,11 @@ void RamScan::print(std::ostream& os, int tabpos) const {
                 }
             }
         }
+	if (minCount) {
+	    os << " MINCOUNT ";
+	    minCount->print(os);
+	    os << " ";
+	}
     }
     if (auto condition = getCondition()) {
         os << "WHERE ";

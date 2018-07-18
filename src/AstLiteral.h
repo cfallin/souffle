@@ -194,7 +194,8 @@ protected:
         assert(dynamic_cast<const AstAtom*>(&node));
         const AstAtom& other = static_cast<const AstAtom&>(node);
         return name == other.name && equal_targets(arguments, other.arguments) &&
-	    ((!minCount && !other.minCount) || (*minCount == *other.minCount));
+	    ((!minCount && !other.minCount) ||
+	     (minCount && other.minCount && *minCount == *other.minCount));
     }
 };
 
