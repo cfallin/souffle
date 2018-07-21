@@ -81,7 +81,7 @@ public:
     // set signal message
     void setMsg(const char* m) {
         msg = m;
-        std::cerr << "DATALOG PROGRESS: " << std::endl << m << std::endl;
+        //std::cerr << "DATALOG PROGRESS: " << std::endl << m << std::endl;
     }
 
     /***
