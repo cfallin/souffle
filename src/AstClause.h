@@ -270,10 +270,14 @@ protected:
     /** Stores a unique number for each clause in a relation */
     size_t clauseNum;
 
+    /** Determines whether this clause adds a hypothetical to
+     * generated tuples' predicates */
+    bool hypothetical;
+
 public:
     /** Construct an empty clause with empty list of literals and
         its head set to NULL */
-    AstClause() : head(nullptr), fixedPlan(false), plan(nullptr), generated(false) {}
+    AstClause() : head(nullptr), fixedPlan(false), plan(nullptr), generated(false), hypothetical(false) {}
 
     ~AstClause() override = default;
 
@@ -368,6 +372,16 @@ public:
     /** Sets the clause number */
     void setClauseNum(size_t num) {
         clauseNum = num;
+    }
+
+    /** Determines whether this clause adds a hypothetical to generated tuples. */
+    bool isHypothetical() const {
+	return hypothetical;
+    }
+
+    /** Sets whether this clause adds a hypothetical to generated tuples. */
+    void setHypothetical(bool h) {
+	hypothetical = h;
     }
 
     /** Print this clause to a given stream */

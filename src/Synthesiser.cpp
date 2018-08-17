@@ -1321,6 +1321,11 @@ void Synthesiser::generateCode(
     os << "public:\n";
     os << "SymbolTable symTable;\n";
 
+    // declare predicate table
+    if (Global::config().has("predicated")) {
+	os << "Predicates preds;\n";
+    }
+
     // print relation definitions
     std::string initCons;      // initialization of constructor
     std::string deleteForNew;  // matching deletes for each new, used in the destructor

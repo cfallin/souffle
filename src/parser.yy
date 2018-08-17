@@ -117,6 +117,7 @@
 %token STRICT                    "strict marker"
 %token PLAN                      "plan keyword"
 %token IF                        ":-"
+%token IF_HYP                    "?-"
 %token DECL                      "relation declaration"
 %token INPUT_DECL                "input directives declaration"
 %token OUTPUT_DECL               "output directives declaration"
@@ -198,6 +199,7 @@
 %type <std::vector<AstTypeIdentifier>>   type_params type_param_list
 %type <std::string>                      comp_override
 %type <AstIODirective *>                 key_value_pairs non_empty_key_value_pairs iodirective iodirective_body
+%type <bool>                             if_operator
 %printer { yyoutput << $$; } <*>;
 
 %precedence AS
@@ -944,7 +946,7 @@ exec_plan
 
 /* Rule Definition */
 rule_def
-  : head IF body DOT {
+  : head if_operator body DOT {
         auto bodies = $3->toClauseBodies();
         for(const auto& head : $1) {
             for(AstClause* body : bodies) {
@@ -952,6 +954,7 @@ rule_def
                 cur->setHead(std::unique_ptr<AstAtom>(head->clone()));
                 cur->setSrcLoc(@$);
                 cur->setGenerated($1.size() != 1 || bodies.size() != 1);
+		cur->setHypothetical($2);
                 $$.push_back(cur);
             }
         }
@@ -962,6 +965,14 @@ rule_def
             delete body;
         }
         delete $3;
+    }
+
+if_operator
+  : IF {
+      $$ = false;
+    }
+  | IF_HYP {
+      $$ = true;
     }
 
 /* Rule */

@@ -41,7 +41,34 @@ struct Tuple {
     // the stored data
     Domain data[arity];
 
-    // constructores, destructors and assignment are default
+    // the predicate, if any (or 0).
+    Domain pred;
+    // the predicate variable index for this tuple, if any (or 0).
+    // NOT included in pred, but rather, implicitly ANDed with it;
+    // this is so that a table of Tuples (keyed on data and pred)
+    // will correctly dedup the same tuple-with-pred rather than
+    // allocate spurious additional copies with new pred vars.
+    Domain pred_var;
+
+    Tuple()
+	: pred(0), pred_var(0)
+    {
+	for (int i = 0; i < arity; i++) {
+	    data[i] = 0;
+	}
+    }
+    Tuple(const Tuple& other)
+	: Tuple()
+    {
+	*this = other;
+    }
+    Tuple& operator=(const Tuple& other) {
+	pred = other.pred;
+	pred_var = other.pred_var;
+	for (int i = 0; i < arity; i++) {
+	    data[i] = other.data[i];
+	}
+    }
 
     // provide access to components
     const Domain& operator[](std::size_t index) const {
@@ -53,11 +80,18 @@ struct Tuple {
         return data[index];
     }
 
+    Domain getPred() const { return pred; }
+    void setPred(Domain p) { pred = p; }
+    Domain getPredVar() const { return pred_var; }
+    void setPredVar(Domain p) { pred_var = p; }
+
     // a comparison operation
     bool operator==(const Tuple& other) const {
         for (std::size_t i = 0; i < arity; i++) {
             if (data[i] != other.data[i]) return false;
         }
+	if (pred != other.pred) return false;
+	// pred_var not compared.
         return true;
     }
 
@@ -72,6 +106,9 @@ struct Tuple {
             if (data[i] < other.data[i]) return true;
             if (data[i] > other.data[i]) return false;
         }
+	if (pred < other.pred) return true;
+	if (pred > other.pred) return false;
+	// pred_var not compared.
         return false;
     }
 
@@ -81,6 +118,9 @@ struct Tuple {
             if (data[i] > other.data[i]) return true;
             if (data[i] < other.data[i]) return false;
         }
+	if (pred > other.pred) return true;
+	if (pred < other.pred) return false;
+	// pred_var not compared.
         return false;
     }
 
@@ -92,7 +132,14 @@ struct Tuple {
             out << tuple.data[i];
             out << ",";
         }
-        return out << tuple.data[arity - 1] << "]";
+        out << tuple.data[arity - 1] << "]";
+	if (pred != 0) {
+	    out << "@" << pred;
+	}
+	if (pred_var != 0) {
+	    out << "/" << pred_var;
+	}
+	return out;
     }
 
     std::string printRaw(std::string& delimiter) {
@@ -105,6 +152,12 @@ struct Tuple {
 		ss << delimiter;
 	    }
 	    ss << data[arity - 1];
+	    if (pred != 0) {
+		ss << delimiter << "@" << pred;
+	    }
+	    if (pred_var != 0) {
+		ss << delimiter << "/" << pred_var;
+	    }
 	}
 	return ss.str();
     }

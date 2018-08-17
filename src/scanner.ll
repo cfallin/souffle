@@ -149,6 +149,7 @@
 "<"                                   { return yy::parser::make_LT(yylloc); }
 ">"                                   { return yy::parser::make_GT(yylloc); }
 ":-"                                  { return yy::parser::make_IF(yylloc); }
+"?-"                                  { return yy::parser::make_IF_HYP(yylloc); }
 (!=|>=|<=)                            { return yy::parser::make_RELOP(SLOOKUP(yytext), yylloc); }
 [0-9]+"."[0-9]+"."[0-9]+"."[0-9]+     {
                                         try {

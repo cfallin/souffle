@@ -179,6 +179,8 @@ int main(int argc, char** argv) {
                                     "binary executable (without executing it)."},
                             {"profile", 'p', "FILE", "", false,
                                     "Enable profiling, and write profile data to <FILE>."},
+			    {"predicated", 'q', "", "", false,
+			            "Enable predicated execution (Hypothetical Datalog)."},
                             {"bddbddb", 'b', "FILE", "", false, "Convert input into bddbddb file format."},
                             {"debug-report", 'r', "FILE", "", false, "Write HTML debug report to <FILE>."},
 #ifdef USE_PROVENANCE

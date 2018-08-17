@@ -18,6 +18,7 @@
 
 #include "AstTypes.h"
 #include "CompiledOptions.h"
+#include "CompiledPredicates.h"
 #include "CompiledRecord.h"
 #include "CompiledRelation.h"
 #include "Logger.h"
