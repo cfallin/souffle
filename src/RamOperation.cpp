@@ -104,7 +104,9 @@ void RamScan::print(std::ostream& os, int tabpos) const {
     os << times('\t', tabpos);
 
     if (isPureExistenceCheck()) {
-        os << "IF ∃ t" << level << " ∈ " << relation->getName() << " ";
+        os << "IF ";
+	os << (forallScan ? "∀" : "∃");
+	os << " t" << level << " ∈ " << relation->getName() << " ";
         if (keys != 0) {
             os << "WITH ";
             bool first = true;
@@ -121,11 +123,6 @@ void RamScan::print(std::ostream& os, int tabpos) const {
                 }
             }
         }
-	if (minCount) {
-	    os << " MINCOUNT ";
-	    minCount->print(os);
-	    os << " ";
-	}
     } else {
         if (keys == 0) {
             os << "SCAN " << relation->getName() << " AS t" << level << " ";
@@ -147,14 +144,25 @@ void RamScan::print(std::ostream& os, int tabpos) const {
                 }
             }
         }
-	if (minCount) {
-	    os << " MINCOUNT ";
-	    minCount->print(os);
-	    os << " ";
-	}
     }
     if (auto condition = getCondition()) {
-        os << "WHERE ";
+	if (forallScan) {
+	    os << "WHERE FORALL t" << level << " PER (";
+	    bool first = true;
+	    for (size_t i = 0; i < relation->getArity(); i++) {
+		if (forallInstanceCols & (1L << i)) {
+		    if (first) {
+			first = false;
+		    } else {
+			os << ", ";
+		    }
+		    os << "t" << level << "." << relation->getArg(i);
+		}
+	    }
+	    os << ") ";
+	} else {
+	    os << "WHERE ";
+	}
         condition->print(os);
     }
 

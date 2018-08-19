@@ -174,9 +174,6 @@ protected:
     /** Indexable columns for a range query */
     SearchColumns keys;
 
-    /** Minimum count desired, if existence check */
-    std::unique_ptr<RamValue> minCount;
-
     /**
      * Determines whether this scan operation is merely verifying the existence
      * of a value (e.g. rel(_,_), rel(1,2), rel(1,_) or rel(X,Y) where X and Y are bound)
@@ -186,14 +183,21 @@ protected:
      */
     bool pureExistenceCheck;
 
+    /**
+     * If this scan operation is a forall scan, the forall instance-key variables.
+     * The scan considers tuples binned by forall "instance key" value,
+     * and passes the tuple down to nested subquery only when it has seen
+     * all tuples for a given forall instance-key and the query pattern / filter
+     * returned 'true' for all of these tuples in the instance.
+     */
+    bool forallScan;
+    SearchColumns forallInstanceCols;
+
 public:
     RamScan(std::unique_ptr<RamRelation> r, std::unique_ptr<RamOperation> nested, bool pureExistenceCheck)
             : RamSearch(RN_Scan, std::move(nested)), relation(std::move(r)),
-              queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck) {}
-
-    void setMinCount(std::unique_ptr<RamValue> minCount) {
-	this->minCount = std::move(minCount);
-    }
+              queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck),
+	      forallScan(false), forallInstanceCols(0) {}
 
     /** Get search relation */
     const RamRelation& getRelation() const {
@@ -216,8 +220,12 @@ public:
         return pureExistenceCheck;
     }
 
-    RamValue* getMinCount() const {
-	return minCount.get();
+    bool isForallScan() const {
+	return forallScan;
+    }
+
+    const SearchColumns& getForallInstanceCols() const {
+	return forallInstanceCols;
     }
 
     /** Print */
@@ -234,9 +242,6 @@ public:
                 res.push_back(cur.get());
             }
         }
-	if (minCount) {
-	    res.push_back(minCount.get());
-	}
         return res;
     }
 
@@ -251,9 +256,8 @@ public:
                 res->queryPattern.push_back(std::unique_ptr<RamValue>(cur->clone()));
             }
         }
-	if (minCount) {
-	    res->minCount = std::unique_ptr<RamValue>(minCount->clone());
-	}
+	res->forallScan = forallScan;
+	res->forallInstanceCols = forallInstanceCols;
         return res;
     }
 
@@ -265,9 +269,6 @@ public:
                 cur = map(std::move(cur));
             }
         }
-	if (minCount) {
-	    minCount = map(std::move(minCount));
-	}
     }
 
 protected:
@@ -277,7 +278,9 @@ protected:
         const RamScan& other = static_cast<const RamScan&>(node);
         return RamSearch::equal(other) && getRelation() == other.getRelation() &&
                equal_targets(queryPattern, other.queryPattern) && keys == other.keys &&
-               pureExistenceCheck == other.pureExistenceCheck;
+               pureExistenceCheck == other.pureExistenceCheck &&
+	       forallScan == other.forallScan &&
+	       forallInstanceCols == other.forallInstanceCols;
     }
 };
     
