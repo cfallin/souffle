@@ -53,9 +53,10 @@ class EvalContext {
     std::vector<RamDomain>* returnValues = nullptr;
     std::vector<bool>* returnErrors = nullptr;
     const std::vector<RamDomain>* args = nullptr;
+    std::vector<RamDomain> preds;
 
 public:
-    EvalContext(size_t size = 0) : data(size) {}
+    EvalContext(size_t size = 0) : data(size), preds(size, Predicates::one()) {}
 
     const RamDomain*& operator[](size_t index) {
         return data[index];
@@ -98,6 +99,10 @@ public:
     RamDomain getArgument(size_t i) const {
         assert(args != nullptr && i < args->size() && "argument out of range");
         return (*args)[i];
+    }
+
+    RamDomain& pred(int i) {
+	return preds[i];
     }
 };
 
@@ -291,8 +296,11 @@ RamDomain eval(const RamValue* value, InterpreterEnvironment& env, const EvalCon
     return eval(*value, env, ctxt);
 }
 
-bool eval(const RamCondition& cond, InterpreterEnvironment& env, const EvalContext& ctxt = EvalContext()) {
-    class Evaluator : public RamVisitor<bool> {
+// Returns predicate (rather than bool) as the condition may be predicated
+// on hypothetical tuple presence/absence.
+RamDomain eval(const RamCondition& cond, InterpreterEnvironment& env, const EvalContext& ctxt = EvalContext()) {
+    // TODO(cfallin): rework the below.
+    class Evaluator : public RamVisitor<RamDomain> {
         InterpreterEnvironment& env;
         const EvalContext& ctxt;
 

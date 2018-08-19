@@ -58,10 +58,10 @@ public:
     Predicates(const Predicates& other) = delete;
     Predicates& operator=(const Predicates& other) = delete;
 
-    RamDomain one() const {
+    static RamDomain one() const {
         return TRUE;
     }
-    RamDomain zero() const {
+    static RamDomain zero() const {
         return FALSE;
     }
     RamDomain and (RamDomain a, RamDomain b) {
