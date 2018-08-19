@@ -174,6 +174,7 @@
 %token LOG                       "log"
 %token EXP                       "exp"
 %token MINCOUNT                  "mincount"
+%token FORALL                    "forall"
 
 %type <uint32_t>                         qualifiers
 %type <AstTypeIdentifier *>              type_id
@@ -198,6 +199,9 @@
 %type <std::vector<AstTypeIdentifier>>   type_params type_param_list
 %type <std::string>                      comp_override
 %type <AstIODirective *>                 key_value_pairs non_empty_key_value_pairs iodirective iodirective_body
+%type <AstVariable *>                    forall_arg
+%type <std::vector<AstVariable*>>        forall_arg_list
+
 %printer { yyoutput << $$; } <*>;
 
 %precedence AS
@@ -809,6 +813,26 @@ atom
 	delete $3;             // rel_id
 	$$->setSrcLoc(@$);
 	$$->setMinCount($8);   // arg (min count)
+    }
+  | FORALL LPAREN forall_arg_list RPAREN atom {
+        $$ = $5;
+	$$->setForallArgs($3);
+    }
+
+forall_arg_list
+  : %empty {}
+  | forall_arg {
+        $$.push_back($1);
+    }
+  | forall_arg_list COMMA forall_arg {
+        $$ = $1;
+        $$.push_back($3);
+    }
+
+forall_arg
+  : IDENT {
+        $$ = new AstVariable($1);
+        $$->setSrcLoc(@$);
     }
 
 /* Literal */

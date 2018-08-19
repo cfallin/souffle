@@ -69,6 +69,9 @@ protected:
     /** Minimum matching count, if present */
     std::unique_ptr<AstArgument> minCount;
 
+    /** Forall-quantification on this atom */
+    std::vector<std::unique_ptr<AstVariable>> forallArgs;
+
 public:
     AstAtom(const AstRelationIdentifier& name = AstRelationIdentifier()) : name(name) {}
 
@@ -131,8 +134,30 @@ public:
 	return minCount.get();
     }
 
+    void setForallArgs(std::vector<AstVariable*> v) {
+	forallArgs.clear();
+	for (AstVariable* var : v) {
+	    forallArgs.push_back(std::unique_ptr<AstVariable>(var));
+	}
+    }
+
+    std::vector<AstVariable*> getForallArgs() const {
+	return toPtrVector(forallArgs);
+    }
+
     /** Output to a given stream */
     void print(std::ostream& os) const override {
+	if (!forallArgs.empty()) {
+	    os << "∀ (";
+	    for (size_t i = 0; i < forallArgs.size(); ++i) {
+		if (i != 0) {
+		    os << ",";
+		}
+		forallArgs[i]->print(os);
+	    }
+	    os << ") ";
+	}
+
         os << getName() << "(";
 
         for (size_t i = 0; i < arguments.size(); ++i) {
@@ -163,6 +188,9 @@ public:
 	if (minCount) {
 	    res->minCount = std::unique_ptr<AstArgument>(minCount->clone());
 	}
+	for (const auto& cur : forallArgs) {
+	    res->forallArgs.push_back(std::unique_ptr<AstVariable>(cur->clone()));
+	}
         return res;
     }
 
@@ -173,6 +201,9 @@ public:
         }
 	if (minCount) {
 	    minCount = map(std::move(minCount));
+	}
+	for (auto& cur : forallArgs) {
+	    cur = map(std::move(cur));
 	}
     }
 
@@ -185,6 +216,9 @@ public:
 	if (minCount) {
 	    res.push_back(minCount.get());
 	}
+	for (auto& cur : forallArgs) {
+	    res.push_back(cur.get());
+	}
         return res;
     }
 
@@ -195,7 +229,8 @@ protected:
         const AstAtom& other = static_cast<const AstAtom&>(node);
         return name == other.name && equal_targets(arguments, other.arguments) &&
 	    ((!minCount && !other.minCount) ||
-	     (minCount && other.minCount && *minCount == *other.minCount));
+	     (minCount && other.minCount && *minCount == *other.minCount)) &&
+	    equal_targets(forallArgs, other.forallArgs);
     }
 };
 
