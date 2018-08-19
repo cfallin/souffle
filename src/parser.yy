@@ -807,13 +807,6 @@ atom
         delete $1;
         $$->setSrcLoc(@$);
     }
-  | MINCOUNT LPAREN rel_id LPAREN arg_list RPAREN COMMA arg RPAREN {
-        $$ = $5;               // arg_list
-	$$->setName(*$3);      // rel_id
-	delete $3;             // rel_id
-	$$->setSrcLoc(@$);
-	$$->setMinCount($8);   // arg (min count)
-    }
   | FORALL LPAREN forall_arg_list RPAREN atom {
         $$ = $5;
 	$$->setForallArgs($3);

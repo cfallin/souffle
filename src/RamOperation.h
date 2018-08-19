@@ -280,7 +280,7 @@ protected:
                pureExistenceCheck == other.pureExistenceCheck;
     }
 };
-
+    
 /**
  * Record lookup
  */

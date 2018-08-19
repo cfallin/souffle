@@ -502,9 +502,6 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                 } else if (auto atom = dynamic_cast<const AstAtom*>(curNode)) {
                     nodeArgs.insert(
                             std::make_pair(curNode, std::make_unique<arg_list>(atom->getArguments())));
-		    if (atom->getMinCount()) {
-			nodeArgs[curNode]->push_back(atom->getMinCount());
-		    }
                 } else {
                     assert(false && "node type doesn't have arguments!");
                 }
@@ -731,11 +728,6 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                                     new RamElementAccess(loc.level, loc.component, loc.name)))));
                 }
             }
-
-	    if (atom->getMinCount()) {
-		dynamic_cast<RamScan*>(op.get())->setMinCount(
-		    translateValue(atom->getMinCount(), valueIndex));
-	    }
 
             // TODO: support constants in nested records!
         } else if (const AstRecordInit* rec = dynamic_cast<const AstRecordInit*>(cur)) {
@@ -1047,11 +1039,6 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                     continue;
                 }
 
-		// skip mincount atoms
-		if (atom->getMinCount()) {
-		    continue;
-		}
-
                 // modify the processed rule to use relDelta and write to relNew
                 std::unique_ptr<AstClause> r1(cl->clone());
                 r1->getHead()->setName(relNew[rel]->getName());
@@ -1066,10 +1053,6 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                 // reduce R to P ...
                 for (size_t k = j + 1; k < atoms.size(); k++) {
                     if (isInSameSCC(getAtomRelation(atoms[k], program))) {
-			// skip mincount atoms
-			if (r1->getAtoms()[k]->getMinCount()) {
-			    continue;
-			}
                         AstAtom* cur = r1->getAtoms()[k]->clone();
                         cur->setName(relDelta[getAtomRelation(atoms[k], program)]->getName());
                         r1->addToBody(std::make_unique<AstNegation>(std::unique_ptr<AstAtom>(cur)));

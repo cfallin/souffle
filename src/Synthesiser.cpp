@@ -641,14 +641,6 @@ public:
         auto keys = scan.getRangeQueryColumns();
         auto index = toIndex(keys);
 
-	// evaluate the min count, if present
-	if (scan.getMinCount()) {
-	    out << "const RamDomain minCount = ";
-	    out << this->print(scan.getMinCount());
-	    out << ";\n";
-	    out << "RamDomain count = 0;\n";
-	}
-
         // if it is a equality-range query
         out << "const Tuple<RamDomain," << arity << "> key({";
         printKeyTuple();
@@ -659,31 +651,13 @@ public:
             out << "if (range.empty()) ++private_num_failed_proofs;\n";
         }
         if (scan.isPureExistenceCheck()) {
-	    if (scan.getMinCount()) {
-		out << "for(const auto& env" << level << " : range) {\n";
-		out << "count++;\n";
-		out << "}\n";
-		out << "if(count >= minCount) {\n";
-		out << print(scan.getNestedOperation());
-		out << "}\n";
-	    } else {
-		out << "if(!range.empty()) {\n";
-		visitSearch(scan, out);
-		out << "}\n";
-	    }
+	    out << "if(!range.empty()) {\n";
+	    visitSearch(scan, out);
+	    out << "}\n";
         } else {
-	    if (scan.getMinCount()) {
-		out << "for(const auto& env" << level << " : range) {\n";
-		out << "count++;\n";
-		out << "}\n";
-		out << "if(count >= minCount) {\n";
-		out << print(scan.getNestedOperation());
-		out << "}\n";
-	    } else {
-		out << "for(const auto& env" << level << " : range) {\n";
-		visitSearch(scan, out);
-		out << "}\n";
-	    }
+	    out << "for(const auto& env" << level << " : range) {\n";
+	    visitSearch(scan, out);
+	    out << "}\n";
         }
         PRINT_END_COMMENT(out);
     }

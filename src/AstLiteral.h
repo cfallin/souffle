@@ -66,9 +66,6 @@ protected:
     /** Arguments of the atom */
     std::vector<std::unique_ptr<AstArgument>> arguments;
 
-    /** Minimum matching count, if present */
-    std::unique_ptr<AstArgument> minCount;
-
     /** Forall-quantification on this atom */
     std::vector<std::unique_ptr<AstVariable>> forallArgs;
 
@@ -122,18 +119,6 @@ public:
         return arguments.size();
     }
 
-    void setMinCount(std::unique_ptr<AstArgument> minCount) {
-	this->minCount = std::move(minCount);
-    }
-
-    void setMinCount(AstArgument* minCount) {
-	this->minCount = std::unique_ptr<AstArgument>(minCount);
-    }
-
-    AstArgument* getMinCount() const {
-	return minCount.get();
-    }
-
     void setForallArgs(std::vector<AstVariable*> v) {
 	forallArgs.clear();
 	for (AstVariable* var : v) {
@@ -171,11 +156,6 @@ public:
             }
         }
         os << ")";
-
-	if (minCount) {
-	    os << " * ";
-	    minCount->print(os);
-	}
     }
 
     /** Creates a clone if this AST sub-structure */
@@ -185,9 +165,6 @@ public:
         for (const auto& cur : arguments) {
             res->arguments.push_back(std::unique_ptr<AstArgument>(cur->clone()));
         }
-	if (minCount) {
-	    res->minCount = std::unique_ptr<AstArgument>(minCount->clone());
-	}
 	for (const auto& cur : forallArgs) {
 	    res->forallArgs.push_back(std::unique_ptr<AstVariable>(cur->clone()));
 	}
@@ -199,9 +176,6 @@ public:
         for (auto& arg : arguments) {
             arg = map(std::move(arg));
         }
-	if (minCount) {
-	    minCount = map(std::move(minCount));
-	}
 	for (auto& cur : forallArgs) {
 	    cur = map(std::move(cur));
 	}
@@ -213,9 +187,6 @@ public:
         for (auto& cur : arguments) {
             res.push_back(cur.get());
         }
-	if (minCount) {
-	    res.push_back(minCount.get());
-	}
 	for (auto& cur : forallArgs) {
 	    res.push_back(cur.get());
 	}
@@ -228,8 +199,6 @@ protected:
         assert(dynamic_cast<const AstAtom*>(&node));
         const AstAtom& other = static_cast<const AstAtom&>(node);
         return name == other.name && equal_targets(arguments, other.arguments) &&
-	    ((!minCount && !other.minCount) ||
-	     (minCount && other.minCount && *minCount == *other.minCount)) &&
 	    equal_targets(forallArgs, other.forallArgs);
     }
 };
