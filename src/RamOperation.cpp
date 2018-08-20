@@ -104,9 +104,7 @@ void RamScan::print(std::ostream& os, int tabpos) const {
     os << times('\t', tabpos);
 
     if (isPureExistenceCheck()) {
-        os << "IF ";
-	os << (forallScan ? "∀" : "∃");
-	os << " t" << level << " ∈ " << relation->getName() << " ";
+        os << "IF ∃ t" << level << " ∈ " << relation->getName() << " ";
         if (keys != 0) {
             os << "WITH ";
             bool first = true;
