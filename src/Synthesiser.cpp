@@ -572,6 +572,8 @@ public:
 
     // -- operations --
 
+    // TODO(cfallin): handle foralls here!
+
     void visitSearch(const RamSearch& search, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
         auto condition = search.getCondition();

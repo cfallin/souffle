@@ -309,7 +309,11 @@ public:
 
     /** Obtains a list of contained body-atoms. */
     std::vector<AstAtom*> getAtoms() const {
-        return toPtrVector(atoms);
+        auto vec = toPtrVector(atoms);
+	if (isForall()) {
+	    vec.insert(vec.begin(), getForallDomain());
+	}
+	return vec;
     }
 
     void replaceAtom(size_t idx, std::unique_ptr<AstAtom> atom) {

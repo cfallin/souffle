@@ -15,6 +15,7 @@
  ***********************************************************************/
 
 #include "AstTranslator.h"
+#include "AstArgument.h"
 #include "AstClause.h"
 #include "AstIODirective.h"
 #include "AstLogStatement.h"
@@ -489,6 +490,10 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     std::vector<const AstNode*> op_nesting;
 
     int level = 0;
+    if (clause.isForall()) {  // reserve a level for the forall below.
+	level++;
+    }
+    
     for (AstAtom* atom : clause.getAtoms()) {
         // index nested variables and records
         typedef std::vector<AstArgument*> arg_list;
@@ -689,6 +694,26 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                         std::make_unique<RamNumber>(c->getIndex()))));
             }
         }
+    }
+
+    // add forall, if specified
+    if (clause.isForall()) {
+	const AstAtom* domAtom = clause.getForallDomain();
+	RamForall* forall = new RamForall(getRelation(domAtom), std::move(op));
+	for (const auto* var : clause.getForallVars()) {
+	    bool found = false;
+	    for (size_t i = 0; i < domAtom->getArity(); i++) {
+		if (AstVariable* atomVar = dynamic_cast<AstVariable*>(domAtom->getArgument(i))) {
+		    if (atomVar->getName() == var->getName()) {
+			forall->addDomVar(i);
+			found = true;
+			break;
+		    }
+		}
+	    }
+	    assert(found && "Unknown domain variable in forall");
+	}
+	op = std::unique_ptr<RamOperation>(forall);
     }
 
     // build operation bottom-up
@@ -1007,6 +1032,8 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
     }
 
     // --- build main loop ---
+
+    // TODO(cfallin): handle foralls here!
 
     std::unique_ptr<RamParallel> loopSeq(new RamParallel());
 

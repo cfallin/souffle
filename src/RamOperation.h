@@ -446,14 +446,8 @@ public:
 	args.push_back(std::move(arg));
     }
 
-    void addDomVar(const std::string& name) {
-	for (size_t i = 0; i < domRelation->getArity(); i++) {
-	    if (domRelation->getArg(i) == name) {
-		domVars |= (1L << i);
-		return;
-	    }
-	}
-	assert(false && "Unknown domain variable in forall");
+    void addDomVar(size_t idx) {
+	domVars |= (1L << idx);
     }
 
     RamRelation* getDomRelation() const {

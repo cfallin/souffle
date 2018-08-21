@@ -432,6 +432,8 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 
         // -- Operations -----------------------------
 
+	// TODO(cfallin): handle foralls here!
+
         void visitSearch(const RamSearch& search) override {
             // check condition
             auto condition = search.getCondition();
