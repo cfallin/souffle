@@ -807,26 +807,6 @@ atom
         delete $1;
         $$->setSrcLoc(@$);
     }
-  | FORALL LPAREN forall_arg_list RPAREN atom {
-        $$ = $5;
-	$$->setForallArgs($3);
-    }
-
-forall_arg_list
-  : %empty {}
-  | forall_arg {
-        $$.push_back($1);
-    }
-  | forall_arg_list COMMA forall_arg {
-        $$ = $1;
-        $$.push_back($3);
-    }
-
-forall_arg
-  : IDENT {
-        $$ = new AstVariable($1);
-        $$->setSrcLoc(@$);
-    }
 
 /* Literal */
 literal
@@ -979,6 +959,52 @@ rule_def
             delete body;
         }
         delete $3;
+    }
+  | head IF FORALL atom SLASH LPAREN forall_arg_list RPAREN COLON atom DOT {
+        auto rulebody = RuleBody::atom($10);
+        auto bodies = rulebody.toClauseBodies();
+	auto heads = $1;
+	auto forallDom = $4;
+	auto vars = $7;
+        for(const auto& head : heads) {
+            for(AstClause* body : bodies) {
+                AstClause* cur = body->clone();
+                cur->setHead(std::unique_ptr<AstAtom>(head->clone()));
+                cur->setSrcLoc(@$);
+                cur->setGenerated(heads.size() != 1 || bodies.size() != 1);
+		cur->setForallDomain(std::unique_ptr<AstAtom>(forallDom->clone()));
+	        for (auto* var : vars) {
+	            cur->addForallVar(std::unique_ptr<AstVariable>(var->clone()));
+		}
+                $$.push_back(cur);
+            }
+        }
+        for(auto& head : heads) {
+            delete head;
+        }
+        for(AstClause* body : bodies) {
+            delete body;
+        }
+	for (AstVariable* var : vars) {
+	    delete var;
+	}
+	delete forallDom;
+    }
+
+forall_arg_list
+  : %empty {}
+  | forall_arg {
+        $$.push_back($1);
+    }
+  | forall_arg_list COMMA forall_arg {
+        $$ = $1;
+        $$.push_back($3);
+    }
+
+forall_arg
+  : IDENT {
+        $$ = new AstVariable($1);
+        $$->setSrcLoc(@$);
     }
 
 /* Rule */

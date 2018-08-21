@@ -66,9 +66,6 @@ protected:
     /** Arguments of the atom */
     std::vector<std::unique_ptr<AstArgument>> arguments;
 
-    /** Forall-quantification on this atom */
-    std::vector<std::unique_ptr<AstVariable>> forallArgs;
-
 public:
     AstAtom(const AstRelationIdentifier& name = AstRelationIdentifier()) : name(name) {}
 
@@ -119,38 +116,8 @@ public:
         return arguments.size();
     }
 
-    void setForallArgs(std::vector<AstVariable*> v) {
-	forallArgs.clear();
-	for (AstVariable* var : v) {
-	    forallArgs.push_back(std::unique_ptr<AstVariable>(var));
-	}
-    }
-
-    void clearForallArgs() {
-	forallArgs.clear();
-    }
-
-    std::vector<AstVariable*> getForallArgs() const {
-	return toPtrVector(forallArgs);
-    }
-
-    bool hasForallArgs() const {
-	return !forallArgs.empty();
-    }
-
     /** Output to a given stream */
     void print(std::ostream& os) const override {
-	if (!forallArgs.empty()) {
-	    os << "∀ (";
-	    for (size_t i = 0; i < forallArgs.size(); ++i) {
-		if (i != 0) {
-		    os << ",";
-		}
-		forallArgs[i]->print(os);
-	    }
-	    os << ") ";
-	}
-
         os << getName() << "(";
 
         for (size_t i = 0; i < arguments.size(); ++i) {
@@ -173,9 +140,6 @@ public:
         for (const auto& cur : arguments) {
             res->arguments.push_back(std::unique_ptr<AstArgument>(cur->clone()));
         }
-	for (const auto& cur : forallArgs) {
-	    res->forallArgs.push_back(std::unique_ptr<AstVariable>(cur->clone()));
-	}
         return res;
     }
 
@@ -184,9 +148,6 @@ public:
         for (auto& arg : arguments) {
             arg = map(std::move(arg));
         }
-	for (auto& cur : forallArgs) {
-	    cur = map(std::move(cur));
-	}
     }
 
     /** Obtains a list of all embedded child nodes */
@@ -195,9 +156,6 @@ public:
         for (auto& cur : arguments) {
             res.push_back(cur.get());
         }
-	for (auto& cur : forallArgs) {
-	    res.push_back(cur.get());
-	}
         return res;
     }
 
@@ -206,8 +164,7 @@ protected:
     bool equal(const AstNode& node) const override {
         assert(dynamic_cast<const AstAtom*>(&node));
         const AstAtom& other = static_cast<const AstAtom&>(node);
-        return name == other.name && equal_targets(arguments, other.arguments) &&
-	    equal_targets(forallArgs, other.forallArgs);
+        return name == other.name && equal_targets(arguments, other.arguments);
     }
 };
 

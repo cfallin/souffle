@@ -100,6 +100,12 @@ void AstClause::print(std::ostream& os) const {
     }
     if (getBodySize() > 0) {
         os << " :- \n   ";
+	if (forallDomain) {
+	    os << " ∀ " << join(getForallVars(), ", ", print_deref<AstVariable*>());
+	    os << " (given universe ";
+	    forallDomain->print(os);
+	    os << "), per instance of other vars:\n   ";
+	}
         os << join(getBodyLiterals(), ",\n   ", print_deref<AstLiteral*>());
     }
     os << ".";
