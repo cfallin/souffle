@@ -960,9 +960,9 @@ rule_def
         }
         delete $3;
     }
-  | head IF FORALL atom SLASH LPAREN forall_arg_list RPAREN COLON atom DOT {
-        auto rulebody = RuleBody::atom($10);
-        auto bodies = rulebody.toClauseBodies();
+  | head IF FORALL atom SLASH LPAREN forall_arg_list RPAREN COLON body DOT {
+        auto* rulebody = $10;
+        auto bodies = rulebody->toClauseBodies();
 	auto heads = $1;
 	auto forallDom = $4;
 	auto vars = $7;
@@ -989,6 +989,7 @@ rule_def
 	    delete var;
 	}
 	delete forallDom;
+	delete rulebody;
     }
 
 forall_arg_list

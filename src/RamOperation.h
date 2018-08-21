@@ -183,21 +183,10 @@ protected:
      */
     bool pureExistenceCheck;
 
-    /**
-     * If this scan operation is a forall scan, the forall instance-key variables.
-     * The scan considers tuples binned by forall "instance key" value,
-     * and passes the tuple down to nested subquery only when it has seen
-     * all tuples for a given forall instance-key and the query pattern / filter
-     * returned 'true' for all of these tuples in the instance.
-     */
-    bool forallScan;
-    SearchColumns forallInstanceCols;
-
 public:
     RamScan(std::unique_ptr<RamRelation> r, std::unique_ptr<RamOperation> nested, bool pureExistenceCheck)
             : RamSearch(RN_Scan, std::move(nested)), relation(std::move(r)),
-              queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck),
-	      forallScan(false), forallInstanceCols(0) {}
+              queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck) {}
 
     /** Get search relation */
     const RamRelation& getRelation() const {
@@ -220,24 +209,11 @@ public:
         return pureExistenceCheck;
     }
 
-    bool isForallScan() const {
-	return forallScan;
-    }
-
-    const SearchColumns& getForallInstanceCols() const {
-	return forallInstanceCols;
-    }
-
     /** Print */
     void print(std::ostream& os, int tabpos) const override;
 
     /** Add condition */
     void addCondition(std::unique_ptr<RamCondition> c, const RamOperation& root) override;
-
-    void addForallCol(size_t col) {
-	forallScan = true;
-	forallInstanceCols |= (1L << col);
-    }
 
     /** Obtain list of child nodes */
     std::vector<const RamNode*> getChildNodes() const override {
@@ -261,8 +237,6 @@ public:
                 res->queryPattern.push_back(std::unique_ptr<RamValue>(cur->clone()));
             }
         }
-	res->forallScan = forallScan;
-	res->forallInstanceCols = forallInstanceCols;
         return res;
     }
 
@@ -283,9 +257,7 @@ protected:
         const RamScan& other = static_cast<const RamScan&>(node);
         return RamSearch::equal(other) && getRelation() == other.getRelation() &&
                equal_targets(queryPattern, other.queryPattern) && keys == other.keys &&
-               pureExistenceCheck == other.pureExistenceCheck &&
-	       forallScan == other.forallScan &&
-	       forallInstanceCols == other.forallInstanceCols;
+	       pureExistenceCheck == other.pureExistenceCheck;
     }
 };
     
