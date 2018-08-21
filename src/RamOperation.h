@@ -421,6 +421,109 @@ protected:
     }
 };
 
+/** Forall aggregation */
+class RamForall : public RamOperation {
+protected:
+    /** Domain relation */
+    std::unique_ptr<RamRelation> domRelation;
+
+    /** Values to connect to each domain-relation argument */
+    std::vector<std::unique_ptr<RamValue>> args;
+
+    /** Forall-domain variables (the rest of the relation columns
+     * indicate forall instance) */
+    SearchColumns domVars;
+
+    /** Nested operation */
+    std::unique_ptr<RamOperation> nested;
+
+public:
+    RamForall(std::unique_ptr<RamRelation> domRelation, std::unique_ptr<RamOperation> nested)
+            : RamOperation(RN_Forall, nested->getLevel() - 1), domRelation(std::move(domRelation)),
+              domVars(0), nested(std::move(nested)) {}
+
+    void addArg(std::unique_ptr<RamValue> arg) {
+	args.push_back(std::move(arg));
+    }
+
+    void addDomVar(const std::string& name) {
+	for (size_t i = 0; i < domRelation->getArity(); i++) {
+	    if (domRelation->getArg(i) == name) {
+		domVars |= (1L << i);
+		return;
+	    }
+	}
+	assert(false && "Unknown domain variable in forall");
+    }
+
+    RamRelation* getDomRelation() const {
+	return domRelation.get();
+    }
+
+    std::vector<RamValue*> getArgs() const {
+	return toPtrVector(args);
+    }
+
+    RamOperation* getNested() const {
+	return nested.get();
+    }
+
+    const SearchColumns& getDomVarColumns() const {
+	return domVars;
+    }
+
+    /** Get depth of query */
+    size_t getDepth() const override {
+        return 1 + nested->getDepth();
+    }
+
+    /** Print */
+    void print(std::ostream& os, int tabpos) const override;
+
+    /** Obtain list of child nodes */
+    std::vector<const RamNode*> getChildNodes() const override {
+        auto res = RamOperation::getChildNodes();
+        res.push_back(domRelation.get());
+        for (const auto& cur : args) {
+            res.push_back(cur.get());
+        }
+	res.push_back(nested.get());
+        return res;
+    }
+
+    /** Create clone */
+    RamForall* clone() const override {
+        RamForall* res = new RamForall(std::unique_ptr<RamRelation>(domRelation->clone()),
+				       std::unique_ptr<RamOperation>(nested->clone()));
+        for (auto& cur : args) {
+            res->args.push_back(std::unique_ptr<RamValue>(cur->clone()));
+        }
+	res->domVars = domVars;
+        return res;
+    }
+
+    /** Apply mapper */
+    void apply(const RamNodeMapper& map) override {
+        RamOperation::apply(map);
+        domRelation = map(std::move(domRelation));
+        for (auto& cur : args) {
+            cur = map(std::move(cur));
+        }
+	nested = map(std::move(nested));
+    }
+
+protected:
+    /** Check equality */
+    bool equal(const RamNode& node) const override {
+        assert(dynamic_cast<const RamForall*>(&node));
+        const RamForall& other = static_cast<const RamForall&>(node);
+	return *domRelation.get() == *other.domRelation.get() &&
+	    domVars == other.domVars &&
+	    equal_targets(args, other.args) &&
+	    *nested.get() == *other.nested.get();
+    }
+};
+
 /** Projection */
 class RamProject : public RamOperation {
 protected:

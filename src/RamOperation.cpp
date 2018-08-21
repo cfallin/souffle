@@ -173,6 +173,30 @@ void RamLookup::print(std::ostream& os, int tabpos) const {
     getNestedOperation()->print(os, tabpos + 1);
 }
 
+void RamForall::print(std::ostream& os, int tabpos) const {
+    os << times('\t', tabpos);
+
+    os << "FORALL t" << getLevel() << " ∈ ";
+    domRelation->print(os);
+    os << " GROUPBY (";
+    
+    bool first = true;
+    for (size_t i = 0; i < domRelation->getArity(); i++) {
+	if (domVars & (1L << i)) {
+	    if (first) {
+		first = false;
+	    } else {
+		os << ", ";
+	    }
+	    os << domRelation->getArg(i);
+	}
+    }
+
+    os << ")\n";
+
+    getNested()->print(os, tabpos + 1);
+}
+
 /** add condition */
 void RamAggregate::addCondition(std::unique_ptr<RamCondition> c, const RamOperation& root) {
     // use condition to narrow scan if possible

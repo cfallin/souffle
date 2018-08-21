@@ -97,6 +97,7 @@ struct RamVisitor : public ram_visitor_tag {
             FORWARD(Return);
             FORWARD(Lookup);
             FORWARD(Scan);
+	    FORWARD(Forall);
             FORWARD(Aggregate);
 
             // statements
@@ -168,41 +169,42 @@ protected:
     LINK(Statement, Node);
 
     // -- operations --
-    LINK(Project, Operation)
-    LINK(Lookup, Search)
-    LINK(Scan, Search)
-    LINK(Aggregate, Search)
-    LINK(Search, Operation)
+    LINK(Project, Operation);
+    LINK(Lookup, Search);
+    LINK(Scan, Search);
+    LINK(Aggregate, Search);
+    LINK(Forall, Operation);
+    LINK(Search, Operation);
     LINK(Return, Operation);
 
-    LINK(Operation, Node)
+    LINK(Operation, Node);
 
     // -- conditions --
-    LINK(And, Condition)
-    LINK(BinaryRelation, Condition)
-    LINK(NotExists, Condition)
-    LINK(Empty, Condition)
+    LINK(And, Condition);;
+    LINK(BinaryRelation, Condition);
+    LINK(NotExists, Condition);
+    LINK(Empty, Condition);
 
-    LINK(Condition, Node)
+    LINK(Condition, Node);
 
     // -- values --
-    LINK(Number, Value)
-    LINK(ElementAccess, Value)
-    LINK(UnaryOperator, Value)
-    LINK(BinaryOperator, Value)
-    LINK(TernaryOperator, Value)
-    LINK(AutoIncrement, Value)
-    LINK(Pack, Value)
-    LINK(Argument, Value)
+    LINK(Number, Value);
+    LINK(ElementAccess, Value);
+    LINK(UnaryOperator, Value);
+    LINK(BinaryOperator, Value);
+    LINK(TernaryOperator, Value);
+    LINK(AutoIncrement, Value);
+    LINK(Pack, Value);
+    LINK(Argument, Value);
 
-    LINK(Value, Node)
+    LINK(Value, Node);
 
     // -- program --
-    LINK(Program, Node)
+    LINK(Program, Node);
 
     // -- relation
-    LINK(Relation, Node)
-    LINK(RelationRef, Node)
+    LINK(Relation, Node);
+    LINK(RelationRef, Node);
 
 #undef LINK
 
