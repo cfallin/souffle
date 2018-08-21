@@ -307,6 +307,10 @@ public:
         return toPtrVector(atoms);
     }
 
+    void replaceAtom(size_t idx, std::unique_ptr<AstAtom> atom) {
+	atoms[idx] = std::move(atom);
+    }
+
     /** Obtains a list of contained negations. */
     std::vector<AstNegation*> getNegations() const {
         return toPtrVector(negations);

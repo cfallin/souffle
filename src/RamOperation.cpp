@@ -143,24 +143,25 @@ void RamScan::print(std::ostream& os, int tabpos) const {
             }
         }
     }
-    if (auto condition = getCondition()) {
-	if (forallScan) {
-	    os << "WHERE FORALL t" << level << " PER (";
-	    bool first = true;
-	    for (size_t i = 0; i < relation->getArity(); i++) {
-		if (forallInstanceCols & (1L << i)) {
-		    if (first) {
-			first = false;
-		    } else {
-			os << ", ";
-		    }
-		    os << "t" << level << "." << relation->getArg(i);
+
+    if (forallScan) {
+	os << "FORALL (";
+	bool first = true;
+	for (size_t i = 0; i < relation->getArity(); i++) {
+	    if (forallInstanceCols & (1L << i)) {
+		if (first) {
+		    first = false;
+		} else {
+		    os << ", ";
 		}
+		os << "t" << level << "." << relation->getArg(i);
 	    }
-	    os << ") ";
-	} else {
-	    os << "WHERE ";
 	}
+	os << ") ";
+    }
+
+    if (auto condition = getCondition()) {
+	os << "WHERE ";
         condition->print(os);
     }
 

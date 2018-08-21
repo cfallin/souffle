@@ -702,7 +702,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
 
         if (const AstAtom* atom = dynamic_cast<const AstAtom*>(cur)) {
             // find out whether a "search" or "if" should be issued
-            bool isExistCheck = !valueIndex.isSomethingDefinedOn(level);
+            bool isExistCheck = !valueIndex.isSomethingDefinedOn(level) && !atom->hasForallArgs();
             for (size_t pos = 0; pos < atom->argSize(); ++pos) {
                 if (dynamic_cast<AstAggregator*>(atom->getArgument(pos))) {
                     isExistCheck = false;
@@ -728,6 +728,26 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                                     new RamElementAccess(loc.level, loc.component, loc.name)))));
                 }
             }
+
+	    // add forall args, if any
+	    if (RamScan* scan = dynamic_cast<RamScan*>(op.get())) {
+		for (const AstVariable* var : atom->getForallArgs()) {
+		    // Find the arg of the atom in which this variable was used (any one
+		    // of them will do)
+		    bool found = false;
+		    for (size_t pos = 0; pos < atom->argSize(); ++pos) {
+			if (AstVariable* arg = dynamic_cast<AstVariable*>(atom->getArgument(pos))) {
+			    if (arg->getName() == var->getName()) {
+				scan->addForallCol(pos);
+				found = true;
+				break;
+			    }
+			}
+		    }
+		    assert(found &&
+			   "Forall variable did not appear as an argument of the quantified atom");
+		}
+	    }
 
             // TODO: support constants in nested records!
         } else if (const AstRecordInit* rec = dynamic_cast<const AstRecordInit*>(cur)) {
@@ -835,6 +855,27 @@ static void appendStmt(std::unique_ptr<RamStatement>& stmtList, std::unique_ptr<
     }
 };
 
+static void verifyForalls(const AstClause* clause) {
+    // verify forall form: if any forall present, then exactly two atoms
+    // and forall on the inner one; and head cannot have a forall.
+    bool hasForall = false;
+    int atomIdx = 0;
+    for (const AstAtom* atom : clause->getAtoms()) {
+        if (atom->hasForallArgs()) {
+            hasForall = true;
+            assert(atomIdx == 1 && "∀ must be on inner atom of a two-atom clause");
+        }
+        atomIdx++;
+    }
+    if (hasForall) {
+        assert(clause->getAtoms().size() == 2 && "∀-containing clause must exactly two atoms");
+        assert(clause->getNegations().empty() && "∀-containing clause must have no negations");
+        assert(clause->getConstraints().empty() && "∀-containing clause must have no constraints");
+        assert(!clause->getExecutionPlan() && "∀-containing clause must have no execution plan");
+    }
+    assert(!clause->getHead()->hasForallArgs() && "Head atom cannot be a ∀");
+}
+
 /** generate RAM code for a non-recursive relation */
 std::unique_ptr<RamStatement> AstTranslator::translateNonRecursiveRelation(const AstRelation& rel,
         const AstProgram* program, const RecursiveClauses* recursiveClauses, const TypeEnvironment& typeEnv) {
@@ -847,6 +888,8 @@ std::unique_ptr<RamStatement> AstTranslator::translateNonRecursiveRelation(const
 
     /* iterate over all clauses that belong to the relation */
     for (AstClause* clause : rel.getClauses()) {
+	verifyForalls(clause);
+	
         // skip recursive rules
         if (recursiveClauses->recursive(clause)) {
             continue;
@@ -1039,12 +1082,56 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                     continue;
                 }
 
+		// ∀-quantification support.
+		AstAtom* extraAtom = nullptr;
+		AstAtom* modifiedAtom = nullptr;
+		size_t modifiedIdx = 0;
+		if (atom->hasForallArgs()) {
+		    // Insert a new atom. We clone the forall atom
+		    // (this one) and insert it, then remove the
+		    // forall from this one. The new atom is not in
+		    // `atoms`, so it does not get its own incremental
+		    // update rule, which is exactly what we want.
+		    extraAtom = atom->clone();
+		    modifiedAtom = atom->clone();
+		    modifiedIdx = j;
+		    modifiedAtom->clearForallArgs();
+
+		    // In the ∀-quantified atom, rename the forall
+		    // variables to ensure that the forall domain is
+		    // unaffected by the enclosing atoms from
+		    // semi-naïve evaluation.
+		    for (auto* forallVar : modifiedAtom->getForallArgs()) {
+			std::string oldName = forallVar->getName();
+			std::string newName = oldName + "__forall_domain_free__";
+			for (auto* arg : modifiedAtom->getArguments()) {
+			    if (!arg) {
+				continue;
+			    }
+			    if (auto* var = dynamic_cast<AstVariable*>(arg)) {
+				if (var->getName() == oldName) {
+				    var->setName(newName);
+				}
+			    }
+			}
+		    }
+
+		    atom = modifiedAtom;
+		}
+
                 // modify the processed rule to use relDelta and write to relNew
                 std::unique_ptr<AstClause> r1(cl->clone());
                 r1->getHead()->setName(relNew[rel]->getName());
-                r1->getAtoms()[j]->setName(relDelta[atomRelation]->getName());
-                r1->addToBody(std::unique_ptr<AstLiteral>(
-                        new AstNegation(std::unique_ptr<AstAtom>(cl->getHead()->clone()))));
+		r1->getAtoms()[j]->setName(relDelta[atomRelation]->getName());
+		r1->addToBody(std::unique_ptr<AstLiteral>(
+				  new AstNegation(std::unique_ptr<AstAtom>(cl->getHead()->clone()))));
+		// add the extra atom from above, if any
+		if (extraAtom) {
+		    r1->addToBody(std::unique_ptr<AstAtom>(extraAtom));
+		}
+		if (modifiedAtom) {
+		    r1->replaceAtom(modifiedIdx, std::unique_ptr<AstAtom>(modifiedAtom));
+		}
 
                 // replace wildcards with variables (reduces indices when wildcards are used in recursive
                 // atoms)

@@ -234,6 +234,11 @@ public:
     /** Add condition */
     void addCondition(std::unique_ptr<RamCondition> c, const RamOperation& root) override;
 
+    void addForallCol(size_t col) {
+	forallScan = true;
+	forallInstanceCols |= (1L << col);
+    }
+
     /** Obtain list of child nodes */
     std::vector<const RamNode*> getChildNodes() const override {
         auto res = RamSearch::getChildNodes();

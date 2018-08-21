@@ -126,8 +126,16 @@ public:
 	}
     }
 
+    void clearForallArgs() {
+	forallArgs.clear();
+    }
+
     std::vector<AstVariable*> getForallArgs() const {
 	return toPtrVector(forallArgs);
+    }
+
+    bool hasForallArgs() const {
+	return !forallArgs.empty();
     }
 
     /** Output to a given stream */
