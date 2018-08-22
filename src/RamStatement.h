@@ -584,7 +584,7 @@ public:
     void print(std::ostream& os, int tabpos) const override {
         os << std::string(tabpos, '\t');
         os << "PARALLEL\n";
-        os << join(statements, ";\n", [&](std::ostream& os, const std::unique_ptr<RamStatement>& stmt) {
+        os << join(statements, " ||\n", [&](std::ostream& os, const std::unique_ptr<RamStatement>& stmt) {
             stmt->print(os, tabpos + 1);
         });
         os << std::string(tabpos, '\t');

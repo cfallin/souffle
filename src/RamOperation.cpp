@@ -176,9 +176,20 @@ void RamLookup::print(std::ostream& os, int tabpos) const {
 void RamForall::print(std::ostream& os, int tabpos) const {
     os << times('\t', tabpos);
 
-    os << " GROUPBY (";
-    
+    os << "SCAN (";
     bool first = true;
+    for (const auto& arg : args) {
+	if (first) {
+	    first = false;
+	} else {
+	    os << ", ";
+	}
+	arg->print(os);
+    }
+
+    os << ") GROUPBY (";
+    
+    first = true;
     for (size_t i = 0; i < domRelation->getArity(); i++) {
 	if (!(domVars & (1L << i))) {
 	    if (first) {
@@ -186,7 +197,7 @@ void RamForall::print(std::ostream& os, int tabpos) const {
 	    } else {
 		os << ", ";
 	    }
-	    os << domRelation->getArg(i);
+	    args[i]->print(os);
 	}
     }
 
