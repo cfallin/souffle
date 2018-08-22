@@ -1044,10 +1044,13 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
             const AstRelation* rel) { return std::find(scc.begin(), scc.end(), rel) != scc.end(); };
 
     /*
-     * Forall translation: write to an intermediate 'new' relation
-     * just for this rule; we then fill this out with all other tuples
-     * from this rule that fall within the same forall instance, and
-     * create a forall on *that*.
+     * FORALLS
+     *
+     * Recursive (monotonic) semi-naive evaluation forall translation:
+     * write to an intermediate 'new' relation just for this rule; we
+     * then fill this out with all other tuples from this rule that
+     * fall within the same forall instance, and create a forall on
+     * *that*.
      *
      * For example:
      *
@@ -1077,7 +1080,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                 continue;
             }
 
-	    std::vector<std::unique_ptr<RamStatement>> stmts;
+	    std::vector<std::unique_ptr<RamStatement>> forallStmts, stmts;
 
 	    // if this is a forall rule, construct a temp relation to
 	    // get all new tuples and their "related" tuples (same
@@ -1124,7 +1127,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		expandRule->setGenerated();
                 nameUnnamedVariables(expandRule.get());
 
-		stmts.push_back(translateClause(*expandRule, program, &typeEnv, 0, false, rel->isHashset()));
+		forallStmts.push_back(translateClause(*expandRule, program, &typeEnv, 0, false, rel->isHashset()));
 
 		// Create a rule that implements only the forall
 		// behavior of the original, with a body only of the
@@ -1137,7 +1140,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		forallRuleBody->setName(forallAugmentedNewRel->getName());
 		forallRule->addToBody(std::move(forallRuleBody));
 		forallRule->setGenerated();
-		stmts.push_back(translateClause(*forallRule, program, &typeEnv, 0, false, rel->isHashset()));
+		forallStmts.push_back(translateClause(*forallRule, program, &typeEnv, 0, false, rel->isHashset()));
 	    }
 
             // each recursive rule results in several operations
@@ -1182,6 +1185,10 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 
                 // increment version counter
                 version++;
+	    }
+
+	    for (auto& s : forallStmts) {
+		stmts.push_back(std::move(s));
 	    }
 
 	    for (auto& rule : stmts) {
