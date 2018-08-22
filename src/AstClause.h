@@ -285,6 +285,19 @@ public:
     /** Add a Literal to the body of the clause */
     void addToBody(std::unique_ptr<AstLiteral> l);
 
+    /** Prepend a literal to the body */
+    void prependToBody(std::unique_ptr<AstLiteral> l);
+
+    void clearHead() {
+	head.reset(nullptr);
+    }
+
+    void clearBody() {
+	atoms.clear();
+	negations.clear();
+	constraints.clear();
+    }
+
     /** Set the head of clause to @p h */
     void setHead(std::unique_ptr<AstAtom> h);
 
@@ -309,11 +322,7 @@ public:
 
     /** Obtains a list of contained body-atoms. */
     std::vector<AstAtom*> getAtoms() const {
-        auto vec = toPtrVector(atoms);
-	if (isForall()) {
-	    vec.insert(vec.begin(), getForallDomain());
-	}
-	return vec;
+        return toPtrVector(atoms);
     }
 
     void replaceAtom(size_t idx, std::unique_ptr<AstAtom> atom) {
@@ -356,6 +365,11 @@ public:
 
     std::vector<AstVariable*> getForallVars() const {
 	return toPtrVector(forallVars);
+    }
+
+    void clearForall() {
+	forallDomain.reset(nullptr);
+	forallVars.clear();
     }
 
     /** Updates the fixed execution order flag */

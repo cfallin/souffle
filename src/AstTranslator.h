@@ -41,9 +41,13 @@ class RecursiveClauses;
  * and RAM structures.
  */
 class AstTranslator {
-    /** If true, created constructs will be annotated with logging information */
+
+    int nextTemp;
+    std::map<size_t, size_t> tempRelationArity;
 
 public:
+    AstTranslator() : nextTemp(1) {}
+
     /**
      * A constructor for this translators.
      *

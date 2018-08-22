@@ -176,13 +176,11 @@ void RamLookup::print(std::ostream& os, int tabpos) const {
 void RamForall::print(std::ostream& os, int tabpos) const {
     os << times('\t', tabpos);
 
-    os << "FORALL t" << getLevel() << " ∈ ";
-    domRelation->print(os);
     os << " GROUPBY (";
     
     bool first = true;
     for (size_t i = 0; i < domRelation->getArity(); i++) {
-	if (domVars & (1L << i)) {
+	if (!(domVars & (1L << i))) {
 	    if (first) {
 		first = false;
 	    } else {
@@ -192,7 +190,9 @@ void RamForall::print(std::ostream& os, int tabpos) const {
 	}
     }
 
-    os << ")\n";
+    os << "); IF ALL t" << getLevel() << " ∈ ";
+    domRelation->print(os);
+    os << " ARE PRESENT IN GROUP\n";
 
     getNested()->print(os, tabpos + 1);
 }

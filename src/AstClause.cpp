@@ -47,6 +47,21 @@ void AstClause::addToBody(std::unique_ptr<AstLiteral> l) {
     }
 }
 
+void AstClause::prependToBody(std::unique_ptr<AstLiteral> l) {
+    if (dynamic_cast<AstAtom*>(l.get())) {
+        atoms.insert(atoms.begin(), std::unique_ptr<AstAtom>(static_cast<AstAtom*>(l.release())));
+    } else if (dynamic_cast<AstNegation*>(l.get())) {
+        negations.insert(
+                negations.begin(), std::unique_ptr<AstNegation>(static_cast<AstNegation*>(l.release())));
+    } else if (dynamic_cast<AstConstraint*>(l.get())) {
+        constraints.insert(constraints.begin(),
+                std::unique_ptr<AstConstraint>(static_cast<AstConstraint*>(l.release())));
+    } else {
+        assert(false && "Unsupported literal type!");
+    }
+}
+
+
 /* Set the head of clause to h */
 void AstClause::setHead(std::unique_ptr<AstAtom> h) {
     ASSERT(!head && "Head is already set");
