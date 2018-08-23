@@ -60,11 +60,10 @@ public:
     // Foralls: only one forall is active at a time.
     struct ForallState {
 	bool init;
-	size_t domainCount;
-	size_t seenCount;
+	std::set<std::vector<RamDomain>> domVals;
 	std::set<std::vector<RamDomain>> seenVals;
 
-	ForallState() : init(false), domainCount(0), seenCount(0) {}
+	ForallState() : init(false) {}
     };
 
 private:
@@ -555,51 +554,56 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 
 	    // construct the tuple
             const auto& args = forall.getArgs();
-            RamDomain tuple[arity];
+	    std::vector<RamDomain> tuple;
             for (size_t i = 0; i < arity; i++) {
-                tuple[i] = eval(args[i], env, ctxt);
+                tuple.push_back(eval(args[i], env, ctxt));
             }
 
 	    // construct the key and val from the tuple
-	    std::vector<RamDomain> key;
-	    std::vector<RamDomain> val;
+	    std::vector<RamDomain> low;
+	    std::vector<RamDomain> high;
 	    SearchColumns valCols = forall.getDomVarColumns();
-	    SearchColumns keyCols = 0;
+	    SearchColumns keyCols = ((1L << arity) - 1) ^ valCols;
 	    for (size_t i = 0; i < arity; i++) {
-		if (valCols & (1L << i)) {
-		    val.push_back(tuple[i]);
-		} else {
-		    keyCols |= (1L << i);
-		    key.push_back(tuple[i]);
-		}
+		bool isVal = valCols & (1L << i);
+		low.push_back(isVal ? MIN_RAM_DOMAIN : tuple[i]);
+		high.push_back(isVal ? MAX_RAM_DOMAIN : tuple[i]);
 	    }
 
 	    // get the state for this forall instance
-	    auto& state = ctxt.getForallState(key);
+	    auto& state = ctxt.getForallState(low);
 
 	    // initialize the state if needed (count domain vals)
 	    if (!state.init) {
 		// get the domain relation
 		const InterpreterRelation& domRel = env.getRelation(*forall.getDomRelation());
 		if (!keyCols) {
-		    state.domainCount = domRel.size();
+		    for (auto t : domRel) {
+			std::vector<RamDomain> domVal(t, t + arity);
+			state.domVals.insert(std::move(domVal));
+		    }
 		} else {
 		    auto* index = domRel.getIndex(keyCols);
-		    auto p = index->equalRange(key.data());
-		    state.domainCount = std::distance(p.first, p.second);
+		    auto p = index->lowerUpperBound(low.data(), high.data());
+		    for (auto i = p.first; i != p.second; ++i) {
+			const RamDomain* t = *i;
+			std::vector<RamDomain> domVal(t, t + arity);
+			state.domVals.insert(std::move(domVal));
+		    }
 		}
 		state.init = true;
 	    }
 
 	    // if we haven't seen this value before, record it and bump count
-	    auto it = state.seenVals.find(val);
-	    if (it != state.seenVals.end()) {
-		state.seenCount++;
-		state.seenVals.insert(it, std::move(val));
-		assert(state.seenCount <= state.domainCount);
-		if (state.seenCount == state.domainCount) {
-		    // Reached all domain values -- forall satisified!
-		    visit(forall.getNested());
+	    auto it = state.seenVals.find(tuple);
+	    if (it == state.seenVals.end()) {
+		auto domIt = state.domVals.find(tuple);
+		if (domIt != state.domVals.end()) {
+		    state.seenVals.insert(it, std::move(tuple));
+		    if (state.seenVals.size() >= state.domVals.size()) {
+			// Reached all domain values -- forall satisified!
+			visit(forall.getNested());
+		    }
 		}
 	    }
 	}
