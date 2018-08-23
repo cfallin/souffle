@@ -36,8 +36,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <map>
 #include <memory>
 #include <regex>
+#include <set>
 #include <utility>
 
 #include <unistd.h>
@@ -53,6 +55,21 @@ class EvalContext {
     std::vector<RamDomain>* returnValues = nullptr;
     std::vector<bool>* returnErrors = nullptr;
     const std::vector<RamDomain>* args = nullptr;
+
+public:
+    // Foralls: only one forall is active at a time.
+    struct ForallState {
+	bool init;
+	size_t domainCount;
+	size_t seenCount;
+	std::set<std::vector<RamDomain>> seenVals;
+
+	ForallState() : init(false), domainCount(0), seenCount(0) {}
+    };
+
+private:
+    std::map<std::vector<RamDomain>, ForallState> forallState;
+
 
 public:
     EvalContext(size_t size = 0) : data(size) {}
@@ -98,6 +115,17 @@ public:
     RamDomain getArgument(size_t i) const {
         assert(args != nullptr && i < args->size() && "argument out of range");
         return (*args)[i];
+    }
+
+    ForallState& getForallState(std::vector<RamDomain> key) {
+	auto it = forallState.find(key);
+	if (it == forallState.end()) {
+	    ForallState newState;
+	    return forallState.insert(
+		it, std::make_pair(std::move(key), newState))->second;
+	} else {
+	    return it->second;
+	}
     }
 };
 
@@ -432,8 +460,6 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 
         // -- Operations -----------------------------
 
-	// TODO(cfallin): handle foralls here!
-
         void visitSearch(const RamSearch& search) override {
             // check condition
             auto condition = search.getCondition();
@@ -524,11 +550,65 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
             visitSearch(lookup);
         }
 
+	void visitForall(const RamForall& forall) override {
+	    size_t arity = forall.getArgs().size();
+
+	    // construct the tuple
+            const auto& args = forall.getArgs();
+            RamDomain tuple[arity];
+            for (size_t i = 0; i < arity; i++) {
+                tuple[i] = eval(args[i], env, ctxt);
+            }
+
+	    // construct the key and val from the tuple
+	    std::vector<RamDomain> key;
+	    std::vector<RamDomain> val;
+	    SearchColumns valCols = forall.getDomVarColumns();
+	    SearchColumns keyCols = 0;
+	    for (size_t i = 0; i < arity; i++) {
+		if (valCols & (1L << i)) {
+		    val.push_back(tuple[i]);
+		} else {
+		    keyCols |= (1L << i);
+		    key.push_back(tuple[i]);
+		}
+	    }
+
+	    // get the state for this forall instance
+	    auto& state = ctxt.getForallState(key);
+
+	    // initialize the state if needed (count domain vals)
+	    if (!state.init) {
+		// get the domain relation
+		const InterpreterRelation& domRel = env.getRelation(*forall.getDomRelation());
+		if (!keyCols) {
+		    state.domainCount = domRel.size();
+		} else {
+		    auto* index = domRel.getIndex(keyCols);
+		    auto p = index->equalRange(key.data());
+		    state.domainCount = std::distance(p.first, p.second);
+		}
+		state.init = true;
+	    }
+
+	    // if we haven't seen this value before, record it and bump count
+	    auto it = state.seenVals.find(val);
+	    if (it != state.seenVals.end()) {
+		state.seenCount++;
+		state.seenVals.insert(it, std::move(val));
+		assert(state.seenCount <= state.domainCount);
+		if (state.seenCount == state.domainCount) {
+		    // Reached all domain values -- forall satisified!
+		    visit(forall.getNested());
+		}
+	    }
+	}
+
         void visitAggregate(const RamAggregate& aggregate) override {
-            // get the targeted relation
+	    // get the targeted relation
             const InterpreterRelation& rel = env.getRelation(aggregate.getRelation());
 
-            // initialize result
+	    // initialize result
             RamDomain res = 0;
             switch (aggregate.getFunction()) {
                 case RamAggregate::MIN:
@@ -847,6 +927,10 @@ void run(const QueryExecutionStrategy& strategy, std::ostream* report, std::ostr
             std::swap(env.getRelation(swap.getFirstRelation()), env.getRelation(swap.getSecondRelation()));
             return true;
         }
+
+	bool visitForallContext(const RamForallContext& fctx) override {
+	    return visit(*fctx.getNested());
+	}
 
         // -- safety net --
 

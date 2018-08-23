@@ -853,7 +853,12 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     }
 
     /* generate the final RAM Insert statement */
-    return std::make_unique<RamInsert>(clause, std::move(op));
+    std::unique_ptr<RamStatement> s = std::make_unique<RamInsert>(clause, std::move(op));
+    if (clause.isForall()) {
+	// wrap the insert in a forall-context (indicates the scope of tuple accumulation).
+	s = std::make_unique<RamForallContext>(std::move(s));
+    }
+    return s;
 }
 
 /* utility for appending statements */
@@ -1069,7 +1074,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
      * // A_Tmp1 has same vars as dom.
      * A_Tmp1(x, y, z) :- Vals_Delta(x, y, z).
      * // Body below comes from original rule as well.
-     * A_Tmp2(x, y, z) :- A_Tmp1(x, y, _), Vals(x, y, z).
+     * A_Tmp2(x, y, z) :- Dom(x, y, _), A_Tmp1(x, y, _), Vals(x, y, z).
      * A_New(x, y) :- ∀ Dom(x, y, z) / (z) : A_Tmp2(x, y, z).
      */
 
@@ -1124,7 +1129,8 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		expandRule->clearHead();
 		expandRule->setHead(std::unique_ptr<AstAtom>(cl->getForallDomain()->clone()));
 		expandRule->getHead()->setName(forallAugmentedNewRel->getName());
-		std::unique_ptr<AstAtom> expandDomain(forallNewHead->clone());
+		std::unique_ptr<AstAtom> expandDomain(cl->getForallDomain()->clone());
+		std::unique_ptr<AstAtom> expandFirstStage(forallNewHead->clone());
 		// Clear all vars in the args of the atom drawing from
 		// above relation that are in the forall-domain.
 		std::set<std::string> forallVars;
@@ -1137,9 +1143,12 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 			    // Set to wildcard.
 			    expandDomain->setArgument(
 				i, std::unique_ptr<AstArgument>(new AstUnnamedVariable()));
+			    expandFirstStage->setArgument(
+				i, std::unique_ptr<AstArgument>(new AstUnnamedVariable()));
 			}
 		    }
 		}
+		expandRule->prependToBody(std::move(expandFirstStage));
 		expandRule->prependToBody(std::move(expandDomain));
 		expandRule->clearForall();
 		expandRule->setGenerated();

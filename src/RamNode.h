@@ -52,7 +52,9 @@ enum RamNodeType {
     RN_Lookup,
     RN_Scan,
     RN_Forall,
+    RN_ForallContext,
     RN_Aggregate,
+
 
     // statements
     RN_Create,

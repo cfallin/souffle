@@ -468,6 +468,50 @@ protected:
     }
 };
 
+class RamForallContext : public RamStatement {
+protected:
+    std::unique_ptr<RamStatement> nested;
+
+public:
+    RamForallContext(std::unique_ptr<RamStatement> n)
+	: RamStatement(RN_ForallContext), nested(std::move(n)) {}
+
+    RamStatement* getNested() const {
+	return nested.get();
+    }
+
+    void print(std::ostream& os, int tabpos) const override {
+        os << std::string(tabpos, '\t') << "FORALL_CONTEXT\n";
+	nested->print(os, tabpos + 1);
+	os << std::string(tabpos, '\t') << "END_FORALL_CONTEXT\n";
+    }
+
+    /** Obtain list of child nodes */
+    std::vector<const RamNode*> getChildNodes() const override {
+        return std::vector<const RamNode*>{nested.get()};
+    }
+
+    /** Create clone */
+    RamForallContext* clone() const override {
+        RamForallContext* res = new RamForallContext(std::unique_ptr<RamStatement>(nested->clone()));
+        return res;
+    }
+
+    /** Apply mapper */
+    void apply(const RamNodeMapper& map) override {
+	nested = map(std::move(nested));
+    }
+
+protected:
+    /** Check equality */
+    bool equal(const RamNode& node) const override {
+        assert(dynamic_cast<const RamForallContext*>(&node));
+        const RamForallContext& other = static_cast<const RamForallContext&>(node);
+
+        return *nested.get() == *other.nested.get();
+    }    
+};
+
 /**
  * Sequence of RAM statements
  *
