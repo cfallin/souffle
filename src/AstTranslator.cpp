@@ -1089,9 +1089,11 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                 continue;
             }
 
+#if 0
 	    std::cerr << "-- clause:\n";
 	    cl->print(std::cerr);
 	    std::cerr << "\n";
+#endif
 
 	    // if this is a forall rule, construct a temp relation to
 	    // get all new tuples and their "related" tuples (same
@@ -1143,9 +1145,12 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		expandRule->setGenerated();
                 nameUnnamedVariables(expandRule.get());
 
+#if 0
 		std::cerr << " -- expanded clause: --\n";
 		expandRule->print(std::cerr);
 		std::cerr << "\n";
+#endif
+		
 		forall1Stmts.push_back(translateClause(*expandRule, program, &typeEnv, 0, false, rel->isHashset()));
 
 		// Create a rule that implements only the forall
@@ -1159,9 +1164,11 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		forallRuleBody->setName(forallAugmentedNewRel->getName());
 		forallRule->addToBody(std::move(forallRuleBody));
 		forallRule->setGenerated();
+#if 0
 		std::cerr << " -- expanded clause: --\n";
 		forallRule->print(std::cerr);
 		std::cerr << "\n";
+#endif
 		forall2Stmts.push_back(translateClause(*forallRule, program, &typeEnv, 0, false, rel->isHashset()));
 	    }
 
@@ -1203,9 +1210,11 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                     }
                 }
 
+#if 0
 		std::cerr << " -- expanded clause: --\n";
 		r1->print(std::cerr);
 		std::cerr << "\n";
+#endif
 
 		std::unique_ptr<RamStatement> stmt(
 		    translateClause(*r1, program, &typeEnv, version, false, rel->isHashset()));
@@ -1241,8 +1250,6 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
     }
     stmts.push_back(std::unique_ptr<RamStatement>());
 
-    std::cerr << " -- RAM IR: --\n";
-
     std::unique_ptr<RamParallel> parallel(new RamParallel());
 
     for (auto& rule : stmts) {
@@ -1254,9 +1261,6 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 	    continue;
 	}
 	
-        rule->print(std::cerr, 1);
-        std::cerr << "\n";
-
         // add to loop body
         parallel->add(std::move(rule));
     }
