@@ -1102,7 +1102,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                 continue;
             }
 
-#if 1
+#if 0
 	    std::cerr << "-- clause:\n";
 	    cl->print(std::cerr);
 	    std::cerr << "\n";
@@ -1162,7 +1162,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		expandRule->setGenerated();
                 nameUnnamedVariables(expandRule.get());
 
-#if 1
+#if 0
 		std::cerr << " -- expanded clause: --\n";
 		expandRule->print(std::cerr);
 		std::cerr << "\n";
@@ -1181,7 +1181,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		forallRuleBody->setName(forallAugmentedNewRel->getName());
 		forallRule->addToBody(std::move(forallRuleBody));
 		forallRule->setGenerated();
-#if 1
+#if 0
 		std::cerr << " -- expanded clause: --\n";
 		forallRule->print(std::cerr);
 		std::cerr << "\n";
@@ -1227,7 +1227,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                     }
                 }
 
-#if 1
+#if 0
 		std::cerr << " -- expanded clause: --\n";
 		r1->print(std::cerr);
 		std::cerr << "\n";
