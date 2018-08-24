@@ -212,6 +212,8 @@ std::set<RamRelation> getReferencedRelations(const RamOperation& op) {
             res.insert(scan->getRelation());
         } else if (auto agg = dynamic_cast<const RamAggregate*>(&node)) {
             res.insert(agg->getRelation());
+	} else if (auto forall = dynamic_cast<const RamForall*>(&node)) {
+	    res.insert(*forall->getDomRelation());
         } else if (auto notExist = dynamic_cast<const RamNotExists*>(&node)) {
             res.insert(notExist->getRelation());
         } else if (auto project = dynamic_cast<const RamProject*>(&node)) {
@@ -572,8 +574,6 @@ public:
 
     // -- operations --
 
-    // TODO(cfallin): handle foralls here!
-
     void visitSearch(const RamSearch& search, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
         auto condition = search.getCondition();
@@ -617,8 +617,8 @@ public:
                 visitSearch(scan, out);
                 out << "}\n";
             }
+	    PRINT_END_COMMENT(out);
             return;
-            PRINT_END_COMMENT(out);
         }
 
         // check list of keys
@@ -684,6 +684,65 @@ public:
 
         out << "}\n";
         PRINT_END_COMMENT(out);
+    }
+
+    void visitForallContext(const RamForallContext& fctx, std::ostream& out) override {
+	out << "{\n";
+
+	std::vector<std::string> keyColList;
+	for (size_t col = 0; col < fctx.getArity(); col++) {
+	    bool isKey = fctx.getKeyCols() & (1L << col);
+	    if (isKey) {
+		keyColList.push_back(toString(col));
+	    }
+	}
+	out << "ram::Relation<Auto, " << fctx.getArity() << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
+	
+	visit(*fctx.getNested(), out);
+
+	out << "}\n";
+    }
+
+    void visitForall(const RamForall& forall, std::ostream& out) override {
+	PRINT_BEGIN_COMMENT(out);
+        const auto* domRel = forall.getDomRelation();
+        auto arity = domRel->getArity();
+        auto relName = getRelationName(*domRel);
+        auto ctxName = "READ_OP_CONTEXT(" + getOpContextName(*domRel) + ")";
+        auto level = forall.getLevel();
+
+	// Construct the tuple being projected at this level.
+	std::string tuple_type = "ram::Tuple<RamDomain," + toString(std::max(1u, arity)) + ">";
+	out << tuple_type << " env" << level << "({\n";
+	for (const auto* arg : forall.getArgs()) {
+	    out << this->print(arg) << ",\n";
+	}
+	out << "});\n";
+
+	// Step 0: probe the domain relation by the specific tuple to
+	// see if this tuple is in the domain. Skip the rest if not.
+	out << "if (" << relName << "->contains(env" << level << ")) {\n";
+
+	// Step 1: insert into forallValsByKey.
+	out << "forallValsByKey.insert(env" << level << ");\n";
+
+	// Step 2: probe the values-by-key relation and get the count
+	// for this key.
+	out << "auto valRange = forallValsByKey.equalRange(env" << level << ", " << ctxName << ");\n";
+	out << "size_t valCount = std::distance(valRange.begin(), valRange.end());\n";
+
+	// Step 3: probe the domain relation and get the count for
+	// this key.
+	out << "auto domRange = " << relName << "->equalRange(env" << level << ", " << ctxName << ");\n";
+	out << "size_t domCount = std::distance(domRange.begin(), domRange.end());\n";
+
+	// Step 4: if the value count is equal to the domain count,
+	// then execute the nested operation.
+	out << "if (valCount == domCount) {\n";
+	visit(*forall.getNested(), out);
+	out << "}\n";
+
+	out << "}\n";  // close step 0's conditional.
     }
 
     void visitAggregate(const RamAggregate& aggregate, std::ostream& out) override {

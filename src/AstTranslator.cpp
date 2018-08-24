@@ -179,7 +179,7 @@ std::unique_ptr<RamRelation> getRamRelation(const AstRelation* rel, const TypeEn
 }
 
 std::unique_ptr<RamRelation> getRamRelation(size_t tempNum, size_t arity) {
-    return getRamRelation(nullptr, nullptr, "Temp" + std::to_string(tempNum), arity, true, false);
+    return getRamRelation(nullptr, nullptr, "__Temp_" + std::to_string(tempNum), arity, false, false);
 }
 
 std::unique_ptr<RamRelation> getRamRelation(const AstRelation* rel, const TypeEnvironment* typeEnv) {
@@ -702,9 +702,10 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     }
 
     // add forall, if specified
+    RamForall* forall = nullptr;
     if (clause.isForall()) {
 	const AstAtom* domAtom = clause.getForallDomain();
-	RamForall* forall = new RamForall(getRelation(domAtom), std::move(op));
+	forall = new RamForall(getRelation(domAtom), std::move(op));
 	
 	// Set up args.
 	for (size_t i = 0; i < domAtom->getArity(); i++) {
@@ -855,8 +856,15 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     /* generate the final RAM Insert statement */
     std::unique_ptr<RamStatement> s = std::make_unique<RamInsert>(clause, std::move(op));
     if (clause.isForall()) {
+	size_t arity = clause.getForallDomain()->getArity();
+	size_t valArity = clause.getForallVars().size();
+	size_t keyArity = arity - valArity;
+	
 	// wrap the insert in a forall-context (indicates the scope of tuple accumulation).
-	s = std::make_unique<RamForallContext>(std::move(s));
+	s = std::make_unique<RamForallContext>(std::move(s), arity,
+					       keyArity, valArity,
+					       forall->getKeyColumns(),
+					       forall->getDomVarColumns());
     }
     return s;
 }
@@ -1094,7 +1102,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                 continue;
             }
 
-#if 0
+#if 1
 	    std::cerr << "-- clause:\n";
 	    cl->print(std::cerr);
 	    std::cerr << "\n";
@@ -1149,12 +1157,12 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		    }
 		}
 		expandRule->prependToBody(std::move(expandFirstStage));
-		expandRule->prependToBody(std::move(expandDomain));
+		expandRule->addToBody(std::unique_ptr<AstAtom>(cl->getForallDomain()->clone()));
 		expandRule->clearForall();
 		expandRule->setGenerated();
                 nameUnnamedVariables(expandRule.get());
 
-#if 0
+#if 1
 		std::cerr << " -- expanded clause: --\n";
 		expandRule->print(std::cerr);
 		std::cerr << "\n";
@@ -1173,7 +1181,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		forallRuleBody->setName(forallAugmentedNewRel->getName());
 		forallRule->addToBody(std::move(forallRuleBody));
 		forallRule->setGenerated();
-#if 0
+#if 1
 		std::cerr << " -- expanded clause: --\n";
 		forallRule->print(std::cerr);
 		std::cerr << "\n";
@@ -1219,7 +1227,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                     }
                 }
 
-#if 0
+#if 1
 		std::cerr << " -- expanded clause: --\n";
 		r1->print(std::cerr);
 		std::cerr << "\n";

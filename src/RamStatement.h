@@ -471,17 +471,46 @@ protected:
 class RamForallContext : public RamStatement {
 protected:
     std::unique_ptr<RamStatement> nested;
+    size_t arity;
+    size_t keyArity;
+    size_t valArity;
+    SearchColumns keyCols;
+    SearchColumns valCols;
 
 public:
-    RamForallContext(std::unique_ptr<RamStatement> n)
-	: RamStatement(RN_ForallContext), nested(std::move(n)) {}
+    RamForallContext(std::unique_ptr<RamStatement> nested,
+		     size_t arity, size_t keyArity, size_t valArity,
+		     SearchColumns keyCols, SearchColumns valCols)
+	: RamStatement(RN_ForallContext), nested(std::move(nested)),
+	  arity(arity), keyArity(keyArity), valArity(valArity),
+	  keyCols(keyCols), valCols(valCols) {}
 
     RamStatement* getNested() const {
 	return nested.get();
     }
 
+    size_t getArity() const {
+	return arity;
+    }
+
+    size_t getKeyArity() const {
+	return keyArity;
+    }
+
+    size_t getValArity() const {
+	return valArity;
+    }
+
+    SearchColumns getKeyCols() const {
+	return keyCols;
+    }
+
+    SearchColumns getValCols() const {
+	return valCols;
+    }
+
     void print(std::ostream& os, int tabpos) const override {
-        os << std::string(tabpos, '\t') << "FORALL_CONTEXT\n";
+        os << std::string(tabpos, '\t') << "FORALL_CONTEXT(" << arity << "," << keyArity << ")\n";
 	nested->print(os, tabpos + 1);
 	os << std::string(tabpos, '\t') << "END_FORALL_CONTEXT\n";
     }
@@ -493,7 +522,9 @@ public:
 
     /** Create clone */
     RamForallContext* clone() const override {
-        RamForallContext* res = new RamForallContext(std::unique_ptr<RamStatement>(nested->clone()));
+        RamForallContext* res = new RamForallContext(std::unique_ptr<RamStatement>(nested->clone()),
+						     arity, keyArity, valArity,
+						     keyCols, valCols);
         return res;
     }
 

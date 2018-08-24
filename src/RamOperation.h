@@ -462,8 +462,13 @@ public:
 	return nested.get();
     }
 
-    const SearchColumns& getDomVarColumns() const {
+    const SearchColumns getDomVarColumns() const {
 	return domVars;
+    }
+
+    const SearchColumns getKeyColumns() const {
+	size_t arity = domRelation->getArity();
+	return ((1L << arity) - 1) ^ domVars;
     }
 
     /** Get depth of query */
