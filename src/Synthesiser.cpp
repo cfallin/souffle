@@ -719,6 +719,26 @@ public:
 	}
 	out << "});\n";
 
+	std::string keyRange = "";
+	std::string keyVals = "";
+	bool first = true;
+	for (size_t col = 0; col < arity; col++) {
+	    if  (forall.getKeyColumns() & (1L << col)) {
+		if (first) {
+		    first = false;
+		} else {
+		    keyRange += ", ";
+		}
+		keyRange += toString(col);
+		keyVals += "env" + toString(level) + "[" + toString(col) + "], ";
+	    } else {
+		keyVals += "0, ";
+	    }
+	}
+
+	out << "ram::Tuple<RamDomain, " << arity << "> forallKey({"
+	    << keyVals << "});\n";
+
 	// Step 0: probe the domain relation by the specific tuple to
 	// see if this tuple is in the domain. Skip the rest if not.
 	out << "if (" << relName << "->contains(env" << level << ")) {\n";
@@ -728,13 +748,17 @@ public:
 
 	// Step 2: probe the values-by-key relation and get the count
 	// for this key.
-	out << "auto valRange = forallValsByKey.equalRange(env" << level << ", " << ctxName << ");\n";
-	out << "size_t valCount = std::distance(valRange.begin(), valRange.end());\n";
+	out << "auto valRange = forallValsByKey.equalRange<" << keyRange << ">(" <<
+	    "forallKey);\n";
+	out << "size_t valCount = 0;\n";
+	out << "for (const auto& t : valRange) { valCount++; }\n";
 
 	// Step 3: probe the domain relation and get the count for
 	// this key.
-	out << "auto domRange = " << relName << "->equalRange(env" << level << ", " << ctxName << ");\n";
-	out << "size_t domCount = std::distance(domRange.begin(), domRange.end());\n";
+	out << "auto domRange = " << relName << "->equalRange<" << keyRange << ">(" <<
+	    "forallKey, " << ctxName << ");\n";
+	out << "size_t domCount = 0;\n";
+	out << "for (const auto& t : domRange) { domCount++; if (domCount > valCount) break; }\n";
 
 	// Step 4: if the value count is equal to the domain count,
 	// then execute the nested operation.
