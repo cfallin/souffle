@@ -473,6 +473,81 @@ protected:
     }
 };
 
+class RamForallContext : public RamStatement {
+protected:
+    std::unique_ptr<RamStatement> nested;
+    size_t arity;
+    size_t keyArity;
+    size_t valArity;
+    SearchColumns keyCols;
+    SearchColumns valCols;
+
+public:
+    RamForallContext(std::unique_ptr<RamStatement> nested,
+		     size_t arity, size_t keyArity, size_t valArity,
+		     SearchColumns keyCols, SearchColumns valCols)
+	: RamStatement(RN_ForallContext), nested(std::move(nested)),
+	  arity(arity), keyArity(keyArity), valArity(valArity),
+	  keyCols(keyCols), valCols(valCols) {}
+
+    RamStatement* getNested() const {
+	return nested.get();
+    }
+
+    size_t getArity() const {
+	return arity;
+    }
+
+    size_t getKeyArity() const {
+	return keyArity;
+    }
+
+    size_t getValArity() const {
+	return valArity;
+    }
+
+    SearchColumns getKeyCols() const {
+	return keyCols;
+    }
+
+    SearchColumns getValCols() const {
+	return valCols;
+    }
+
+    void print(std::ostream& os, int tabpos) const override {
+        os << std::string(tabpos, '\t') << "FORALL_CONTEXT(" << arity << "," << keyArity << ")\n";
+	nested->print(os, tabpos + 1);
+	os << std::string(tabpos, '\t') << "END_FORALL_CONTEXT\n";
+    }
+
+    /** Obtain list of child nodes */
+    std::vector<const RamNode*> getChildNodes() const override {
+        return std::vector<const RamNode*>{nested.get()};
+    }
+
+    /** Create clone */
+    RamForallContext* clone() const override {
+        RamForallContext* res = new RamForallContext(std::unique_ptr<RamStatement>(nested->clone()),
+						     arity, keyArity, valArity,
+						     keyCols, valCols);
+        return res;
+    }
+
+    /** Apply mapper */
+    void apply(const RamNodeMapper& map) override {
+	nested = map(std::move(nested));
+    }
+
+protected:
+    /** Check equality */
+    bool equal(const RamNode& node) const override {
+        assert(dynamic_cast<const RamForallContext*>(&node));
+        const RamForallContext& other = static_cast<const RamForallContext&>(node);
+
+        return *nested.get() == *other.nested.get();
+    }    
+};
+
 /**
  * Sequence of RAM statements
  *
@@ -589,7 +664,7 @@ public:
     void print(std::ostream& os, int tabpos) const override {
         os << std::string(tabpos, '\t');
         os << "PARALLEL\n";
-        os << join(statements, ";\n", [&](std::ostream& os, const std::unique_ptr<RamStatement>& stmt) {
+        os << join(statements, " ||\n", [&](std::ostream& os, const std::unique_ptr<RamStatement>& stmt) {
             stmt->print(os, tabpos + 1);
         });
         os << std::string(tabpos, '\t');
