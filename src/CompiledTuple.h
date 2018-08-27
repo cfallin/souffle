@@ -133,11 +133,11 @@ struct Tuple {
             out << ",";
         }
         out << tuple.data[arity - 1] << "]";
-	if (pred != 0) {
-	    out << "@" << pred;
+	if (tuple.pred != 0) {
+	    out << "@" << tuple.pred;
 	}
-	if (pred_var != 0) {
-	    out << "/" << pred_var;
+	if (tuple.pred_var != 0) {
+	    out << "/" << tuple.pred_var;
 	}
 	return out;
     }

@@ -72,7 +72,7 @@ private:
 
 
 public:
-    EvalContext(size_t size = 0) : data(size), preds(size, Predicates::one()) {}
+    EvalContext(size_t size = 0) : data(size), preds(size, 1) {}
 
     const RamDomain*& operator[](size_t index) {
         return data[index];
@@ -117,9 +117,6 @@ public:
         return (*args)[i];
     }
 
-
-    RamDomain& pred(int i) {
-	return preds[i];
 
     ForallState& getForallState(std::vector<RamDomain> key) {
 	auto it = forallState.find(key);
@@ -327,7 +324,7 @@ RamDomain eval(const RamValue* value, InterpreterEnvironment& env, const EvalCon
 // on hypothetical tuple presence/absence.
 RamDomain eval(const RamCondition& cond, InterpreterEnvironment& env, const EvalContext& ctxt = EvalContext()) {
     // TODO(cfallin): rework the below.
-    class Evaluator : public RamVisitor<RamDomain> {
+    class Evaluator : public RamVisitor<bool> {
         InterpreterEnvironment& env;
         const EvalContext& ctxt;
 

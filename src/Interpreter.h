@@ -21,7 +21,6 @@
 #include "RamRelation.h"
 #include "RamTranslationUnit.h"
 #include "SymbolTable.h"
-#include "CompiledPredicates.h"
 
 #include "RamStatement.h"
 
@@ -463,7 +462,7 @@ class InterpreterEnvironment {
     int counter;
 
     /** The predicate table that defines predicates on tuples */
-    Predicates preds;
+    //Predicates preds;
 
 public:
     InterpreterEnvironment(SymbolTable& symbolTable) : symbolTable(symbolTable), counter(0) {}
