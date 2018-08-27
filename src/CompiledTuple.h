@@ -18,6 +18,7 @@
 #pragma once
 
 #include "RamTypes.h"
+#include "BDD.h"
 
 #include <iostream>
 
@@ -42,13 +43,13 @@ struct Tuple {
     Domain data[arity];
 
     // the predicate, if any (or 0).
-    Domain pred;
+    BDDValue pred;
     // the predicate variable index for this tuple, if any (or 0).
     // NOT included in pred, but rather, implicitly ANDed with it;
     // this is so that a table of Tuples (keyed on data and pred)
     // will correctly dedup the same tuple-with-pred rather than
     // allocate spurious additional copies with new pred vars.
-    Domain pred_var;
+    BDDVar pred_var;
 
     Tuple()
 	: pred(0), pred_var(0)
@@ -80,10 +81,10 @@ struct Tuple {
         return data[index];
     }
 
-    Domain getPred() const { return pred; }
-    void setPred(Domain p) { pred = p; }
-    Domain getPredVar() const { return pred_var; }
-    void setPredVar(Domain p) { pred_var = p; }
+    BDDValue getPred() const { return pred; }
+    void setPred(BDDValue p) { pred = p; }
+    BDDVar getPredVar() const { return pred_var; }
+    void setPredVar(BDDVar p) { pred_var = p; }
 
     // a comparison operation
     bool operator==(const Tuple& other) const {

@@ -619,6 +619,9 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     } else {
         std::unique_ptr<RamProject> project =
                 std::unique_ptr<RamProject>(new RamProject(getRelation(&head), level));
+	if (clause.isHypothetical()) {
+	    project->setHypothetical(true);
+	}
 
         for (AstArgument* arg : head.getArguments()) {
             project->addArg(translateValue(arg, valueIndex));

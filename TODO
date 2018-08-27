@@ -1,9 +1,6 @@
-- carry predicate through RAM interpreter:
-  - at each level, with a lookup (scan or exists), AND together with existing pred
-  - for a not-exists check, if the tuple exists at all with a
-    predicate other than "TRUE", invert the predicate and continue
-  - when loading from a hypothetical tuple, AND the new hypothetical terminal
+- predicates in forall
 - dump predicate table as file (one line per node)
 - dump predicates as a column alongside output relations
+- predicates in codegen
 - postprocessor: choose predicate terminals to enable to maximize a
   relation

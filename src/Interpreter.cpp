@@ -55,7 +55,7 @@ class EvalContext {
     std::vector<RamDomain>* returnValues = nullptr;
     std::vector<bool>* returnErrors = nullptr;
     const std::vector<RamDomain>* args = nullptr;
-    std::vector<RamDomain> preds;
+    std::vector<BDDValue> preds;  // predicate for each level of evaluation
 
 public:
     // Foralls: only one forall is active at a time.
@@ -72,7 +72,7 @@ private:
 
 
 public:
-    EvalContext(size_t size = 0) : data(size), preds(size, 1) {}
+    EvalContext(size_t size = 0) : data(size), preds(size, BDD::TRUE) {}
 
     const RamDomain*& operator[](size_t index) {
         return data[index];
@@ -127,6 +127,10 @@ public:
 	} else {
 	    return it->second;
 	}
+    }
+
+    BDDValue& pred(size_t i) {
+	return preds[i];
     }
 };
 
@@ -322,29 +326,32 @@ RamDomain eval(const RamValue* value, InterpreterEnvironment& env, const EvalCon
 
 // Returns predicate (rather than bool) as the condition may be predicated
 // on hypothetical tuple presence/absence.
-RamDomain eval(const RamCondition& cond, InterpreterEnvironment& env, const EvalContext& ctxt = EvalContext()) {
+BDDValue eval(const RamCondition& cond, InterpreterEnvironment& env, const EvalContext& ctxt = EvalContext()) {
     // TODO(cfallin): rework the below.
-    class Evaluator : public RamVisitor<bool> {
+    class Evaluator : public RamVisitor<BDDValue> {
         InterpreterEnvironment& env;
         const EvalContext& ctxt;
+	BDD& bdd;
 
     public:
-        Evaluator(InterpreterEnvironment& env, const EvalContext& ctxt) : env(env), ctxt(ctxt) {}
+        Evaluator(InterpreterEnvironment& env, const EvalContext& ctxt)
+	    : env(env), ctxt(ctxt), bdd(env.getBDD()) {}
 
         // -- connectors operators --
 
-        bool visitAnd(const RamAnd& a) override {
-            return visit(a.getLHS()) && visit(a.getRHS());
+        BDDValue visitAnd(const RamAnd& a) override {
+            return bdd.make_and(visit(a.getLHS()), visit(a.getRHS()));
         }
 
         // -- relation operations --
 
-        bool visitEmpty(const RamEmpty& empty) override {
-            return env.getRelation(empty.getRelation()).empty();
+        BDDValue visitEmpty(const RamEmpty& empty) override {
+            return env.getRelation(empty.getRelation()).empty() ? BDD::TRUE : BDD::FALSE;
         }
 
-        bool visitNotExists(const RamNotExists& ne) override {
+        BDDValue visitNotExists(const RamNotExists& ne) override {
             const InterpreterRelation& rel = env.getRelation(ne.getRelation());
+	    BDDValue pred = ctxt.pred(ne.getLevel());
 
             // construct the pattern tuple
             auto arity = rel.getArity();
@@ -357,7 +364,7 @@ RamDomain eval(const RamCondition& cond, InterpreterEnvironment& env, const Eval
                     tuple[i] = (values[i]) ? eval(values[i], env, ctxt) : MIN_RAM_DOMAIN;
                 }
 
-                return !rel.exists(tuple);
+                return !rel.exists(tuple, pred);
             }
 
             // for partial we search for lower and upper boundaries
@@ -371,26 +378,44 @@ RamDomain eval(const RamCondition& cond, InterpreterEnvironment& env, const Eval
             // obtain index
             auto idx = rel.getIndex(ne.getKey());
             auto range = idx->lowerUpperBound(low, high);
-            return range.first == range.second;  // if there are none => done
+	    if (env.getEnableHypotheses()) {
+		BDDValue exists = BDD::FALSE;
+		for (const auto* tuple : range) {
+		    BDDValue thisPred = tuple[rel.getArity()];
+		    BDDVar thisPredVar = tuple[rel.getArity() + 1];
+		    thisPred = thisPredVar != 0 ? bdd.make_and(thisPred, bdd.make_var(thisPredVar)) : thisPred;
+		    exists = bdd.make_or(exists, thisPred);
+		}
+		return bdd.make_not(exists);
+	    } else {
+		// if there are none => done
+		return range.first == range.second ? BDD::TRUE : BDD::FALSE;
+	    }
         }
 
         // -- comparison operators --
 
-        bool visitBinaryRelation(const RamBinaryRelation& relOp) override {
+        BDDValue visitBinaryRelation(const RamBinaryRelation& relOp) override {
             switch (relOp.getOperator()) {
                 // comparison operators
                 case BinaryConstraintOp::EQ:
-                    return eval(relOp.getLHS(), env, ctxt) == eval(relOp.getRHS(), env, ctxt);
+                    return eval(relOp.getLHS(), env, ctxt) == eval(relOp.getRHS(), env, ctxt) ? BDD::TRUE
+                                                                                              : BDD::FALSE;
                 case BinaryConstraintOp::NE:
-                    return eval(relOp.getLHS(), env, ctxt) != eval(relOp.getRHS(), env, ctxt);
+                    return eval(relOp.getLHS(), env, ctxt) != eval(relOp.getRHS(), env, ctxt) ? BDD::TRUE
+                                                                                              : BDD::FALSE;
                 case BinaryConstraintOp::LT:
-                    return eval(relOp.getLHS(), env, ctxt) < eval(relOp.getRHS(), env, ctxt);
+                    return eval(relOp.getLHS(), env, ctxt) < eval(relOp.getRHS(), env, ctxt) ? BDD::TRUE
+                                                                                             : BDD::FALSE;
                 case BinaryConstraintOp::LE:
-                    return eval(relOp.getLHS(), env, ctxt) <= eval(relOp.getRHS(), env, ctxt);
+                    return eval(relOp.getLHS(), env, ctxt) <= eval(relOp.getRHS(), env, ctxt) ? BDD::TRUE
+                                                                                              : BDD::FALSE;
                 case BinaryConstraintOp::GT:
-                    return eval(relOp.getLHS(), env, ctxt) > eval(relOp.getRHS(), env, ctxt);
+                    return eval(relOp.getLHS(), env, ctxt) > eval(relOp.getRHS(), env, ctxt) ? BDD::TRUE
+                                                                                             : BDD::FALSE;
                 case BinaryConstraintOp::GE:
-                    return eval(relOp.getLHS(), env, ctxt) >= eval(relOp.getRHS(), env, ctxt);
+                    return eval(relOp.getLHS(), env, ctxt) >= eval(relOp.getRHS(), env, ctxt) ? BDD::TRUE
+                                                                                              : BDD::FALSE;
 
                 // strings
                 case BinaryConstraintOp::MATCH: {
@@ -405,7 +430,7 @@ RamDomain eval(const RamCondition& cond, InterpreterEnvironment& env, const Eval
                         std::cerr << "warning: wrong pattern provided for match(\"" << pattern << "\",\""
                                   << text << "\")\n";
                     }
-                    return result;
+                    return result ? BDD::TRUE : BDD::FALSE;
                 }
                 case BinaryConstraintOp::NOT_MATCH: {
                     RamDomain l = eval(relOp.getLHS(), env, ctxt);
@@ -419,34 +444,34 @@ RamDomain eval(const RamCondition& cond, InterpreterEnvironment& env, const Eval
                         std::cerr << "warning: wrong pattern provided for !match(\"" << pattern << "\",\""
                                   << text << "\")\n";
                     }
-                    return result;
+                    return result ? BDD::TRUE : BDD::FALSE;
                 }
                 case BinaryConstraintOp::CONTAINS: {
                     RamDomain l = eval(relOp.getLHS(), env, ctxt);
                     RamDomain r = eval(relOp.getRHS(), env, ctxt);
                     const std::string& pattern = env.getSymbolTable().resolve(l);
                     const std::string& text = env.getSymbolTable().resolve(r);
-                    return text.find(pattern) != std::string::npos;
+                    return text.find(pattern) != std::string::npos ? BDD::TRUE : BDD::FALSE;
                 }
                 case BinaryConstraintOp::NOT_CONTAINS: {
                     RamDomain l = eval(relOp.getLHS(), env, ctxt);
                     RamDomain r = eval(relOp.getRHS(), env, ctxt);
                     const std::string& pattern = env.getSymbolTable().resolve(l);
                     const std::string& text = env.getSymbolTable().resolve(r);
-                    return text.find(pattern) == std::string::npos;
+                    return text.find(pattern) == std::string::npos ? BDD::TRUE : BDD::FALSE;
                 }
                 default:
                     assert(0 && "unsupported operator");
-                    return 0;
+                    return BDD::FALSE;
             }
         }
 
         // -- safety net --
 
-        bool visitNode(const RamNode& node) override {
+        BDDValue visitNode(const RamNode& node) override {
             std::cerr << "Unsupported node type: " << typeid(node).name() << "\n";
             assert(false && "Unsupported Node Type!");
-            return 0;
+            return BDD::FALSE;
         }
     };
 
@@ -458,26 +483,35 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
     class Interpreter : public RamVisitor<void> {
         InterpreterEnvironment& env;
         EvalContext& ctxt;
+	BDD& bdd;
 
     public:
-        Interpreter(InterpreterEnvironment& env, EvalContext& ctxt) : env(env), ctxt(ctxt) {}
+        Interpreter(InterpreterEnvironment& env, EvalContext& ctxt) : env(env), ctxt(ctxt), bdd(env.getBDD()) {}
 
         // -- Operations -----------------------------
 
         void visitSearch(const RamSearch& search) override {
             // check condition
             auto condition = search.getCondition();
-            if (condition && !eval(*condition, env, ctxt)) {
+	    BDDValue thisPred = ctxt.pred(search.getLevel());
+            if (condition) {
+		thisPred = bdd.make_and(thisPred, eval(*condition, env, ctxt));
+	    }
+
+	    if (thisPred == BDD::FALSE) {
                 return;  // condition not valid => skip nested
             }
 
             // process nested
+	    ctxt.pred(search.getLevel() + 1) = thisPred;
             visit(*search.getNestedOperation());
         }
 
         void visitScan(const RamScan& scan) override {
             // get the targeted relation
             const InterpreterRelation& rel = env.getRelation(scan.getRelation());
+
+	    BDDValue thisPred = ctxt.pred(scan.getLevel());
 
             // process full scan if no index is given
             if (scan.getRangeQueryColumns() == 0) {
@@ -490,6 +524,15 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
                 // if scan is unrestricted => use simple iterator
                 for (const RamDomain* cur : rel) {
                     ctxt[scan.getLevel()] = cur;
+		    BDDValue tuplePred = BDD::TRUE;
+		    if (env.getEnableHypotheses()) {
+			tuplePred = cur[rel.getArity()];
+			BDDVar tuplePredVar = cur[rel.getArity() + 1];
+			tuplePred = tuplePredVar != 0 ?
+			    bdd.make_and(tuplePred, bdd.make_var(tuplePredVar)) :
+			    tuplePred;
+			ctxt.pred(scan.getLevel()) = bdd.make_and(thisPred, tuplePred);
+		    }
                     visitSearch(scan);
                 }
                 return;
@@ -518,10 +561,26 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 
             // if this scan is not binding anything ...
             if (scan.isPureExistenceCheck()) {
-		// just an existence check, so any non-empty range
-		// will match the query.
-		if (range.first != range.second) {
-		    visitSearch(scan);
+		if (env.getEnableHypotheses()) {
+		    BDDValue pred = BDD::FALSE;
+		    for (const RamDomain* tuple : range) {
+			BDDValue tuplePred = tuple[rel.getArity()];
+			BDDVar tupleVar = tuple[rel.getArity() + 1];
+			tuplePred = tupleVar != 0 ?
+			    bdd.make_and(tuplePred, bdd.make_var(tupleVar)) :
+			    tuplePred;
+			pred = bdd.make_or(pred, tuplePred);
+		    }
+		    ctxt.pred(scan.getLevel()) = bdd.make_and(thisPred, pred);
+		    if (ctx.preds[scan.getLevel()] != BDD::FALSE) {
+			visitSearch(scan);
+		    }
+		} else {
+		    // just an existence check, so any non-empty range
+		    // will match the query.
+		    if (range.first != range.second) {
+			visitSearch(scan);
+		    }
 		}
                 return;
             }
@@ -530,6 +589,16 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 	    for (auto ip = range.first; ip != range.second; ++ip) {
 		const RamDomain* data = *(ip);
 		ctxt[scan.getLevel()] = data;
+		BDDValue tuplePred = BDD::TRUE;
+		if (env.getEnableHypotheses()) {
+		    tuplePred = tuple[rel.getArity()];
+		    BDDVar tupleVar = tuple[rel.getArity() + 1];
+		    tuplePred = tupleVar != 0 ?
+			bdd.make_and(tuplePred, bdd.make_var(tupleVar)) :
+			tuplePred;
+		    tuplePred = bdd.make_and(thisPred, tuplePred);
+		}
+		ctxt.pred(scan.getLevel()) = tuplePred;
 		visitSearch(scan);
 	    }
         }
@@ -537,6 +606,9 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
         void visitLookup(const RamLookup& lookup) override {
             // get reference
             RamDomain ref = ctxt[lookup.getReferenceLevel()][lookup.getReferencePosition()];
+
+	    // no predicate handling required: handled in
+	    // `visitSearch()`, called below.
 
             // check for null
             if (isNull(ref)) {
@@ -556,6 +628,8 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 
 	void visitForall(const RamForall& forall) override {
 	    size_t arity = forall.getArgs().size();
+
+	    // TODO: handle predicates here!
 
 	    // construct the tuple
             const auto& args = forall.getArgs();
@@ -616,6 +690,8 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
         void visitAggregate(const RamAggregate& aggregate) override {
 	    // get the targeted relation
             const InterpreterRelation& rel = env.getRelation(aggregate.getRelation());
+
+	    // predicates not supported for aggregates.
 
 	    // initialize result
             RamDomain res = 0;
@@ -716,7 +792,12 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
         void visitProject(const RamProject& project) override {
             // check constraints
             RamCondition* condition = project.getCondition();
-            if (condition && !eval(*condition, env, ctxt)) {
+	    BDDValue thisPred = ctxt.pred(project.getLevel());
+            if (condition) {
+		thisPred = bdd.make_and(thisPred, eval(*condition, env, ctxt));
+	    }
+
+	    if (thisPred == BDD::FALSE) {
                 return;  // condition violated => skip insert
             }
 
@@ -727,14 +808,18 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
             for (size_t i = 0; i < arity; i++) {
                 tuple[i] = eval(values[i], env, ctxt);
             }
+	    BDDVar thisVar = 0;
+	    if (env.getEnableHypotheses() && project.getHypothetical()) {
+		thisVar = bdd.alloc_var();
+	    }
 
             // check filter relation
-            if (project.hasFilter() && env.getRelation(project.getFilter()).exists(tuple)) {
+            if (project.hasFilter() && env.getRelation(project.getFilter()).exists(tuple, thisPred, thisVar)) {
                 return;
             }
 
             // insert in target relation
-            env.getRelation(project.getRelation()).insert(tuple);
+            env.getRelation(project.getRelation()).insert(tuple, thisPred, thisVar);
         }
 
         // -- return from subroutine --
@@ -806,7 +891,7 @@ void run(const QueryExecutionStrategy& strategy, std::ostream* report, std::ostr
 
             // parallel execution
             bool cond = true;
-#pragma omp parallel for reduction(&& : cond)
+//#pragma omp parallel for reduction(&& : cond)
             for (size_t i = 0; i < stmts.size(); i++) {
                 cond = cond && visit(stmts[i]);
             }

@@ -19,6 +19,7 @@
 #include <vector>
 #include <map>
 #include <mutex>
+#include <atomic>
 #include <stdint.h>
 #include <assert.h>
 
@@ -28,6 +29,10 @@ typedef uint64_t BDDValue;
 typedef uint64_t BDDVar;
 
 class BDD {
+public:
+    static const BDDValue FALSE = static_cast<uint64_t>(0);
+    static const BDDValue TRUE = static_cast<uint64_t>(1);
+
 private:
     struct Node {
         BDDVar var;
@@ -43,14 +48,12 @@ private:
         }
     };
 
-    static const BDDValue FALSE = static_cast<uint64_t>(0);
-    static const BDDValue TRUE = static_cast<uint64_t>(1);
-
     static const BDDVar MAX_VAR = UINT64_MAX;
 
     std::mutex lock_;
     std::vector<Node> nodes_;
     std::map<Node, BDDValue> nodes_reverse_;
+    std::atomic<BDDVar> next_var_;
 
     static bool not_terminal(BDDValue v) {
 	return v > TRUE;
@@ -131,7 +134,7 @@ private:
     }
 
 public:
-    BDD() {
+    BDD() : next_var_(1) {
 	// false -- placeholder
 	nodes_.push_back(Node { 0, 0, 0 });
 	// true -- placeholder
@@ -163,6 +166,10 @@ public:
     BDDValue make_or(BDDValue a, BDDValue b) {
 	std::lock_guard<std::mutex> guard(lock_);
 	return ite(a, one(), b);
+    }
+
+    BDDVar alloc_var() {
+	return next_var_.fetch_add(1);
     }
 };
 

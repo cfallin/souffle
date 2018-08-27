@@ -536,13 +536,17 @@ protected:
     /* Values for projection */
     std::vector<std::unique_ptr<RamValue>> values;
 
+    /** Projection allocates new "hypothetical" variable on all tuples
+     * created? */
+    bool hypothetical;
+
 public:
     RamProject(std::unique_ptr<RamRelation> rel, size_t level)
-            : RamOperation(RN_Project, level), relation(std::move(rel)), filter(nullptr) {}
+	    : RamOperation(RN_Project, level), relation(std::move(rel)), filter(nullptr), hypothetical(false) {}
 
     RamProject(std::unique_ptr<RamRelation> rel, const RamRelation& filter, size_t level)
             : RamOperation(RN_Project, level), relation(std::move(rel)),
-              filter(std::make_unique<RamRelation>(filter)) {}
+              filter(std::make_unique<RamRelation>(filter)), hypothetical(false) {}
 
     /** Add value for a column */
     void addArg(std::unique_ptr<RamValue> v) {
@@ -551,6 +555,14 @@ public:
 
     /** Add condition to project, needed for different level check */
     void addCondition(std::unique_ptr<RamCondition> c, const RamOperation& root) override;
+
+    void setHypothetical(bool h) {
+	hypothetical = h;
+    }
+
+    bool getHypothetical() const {
+	return hypothetical;
+    }
 
     /** Get relation */
     const RamRelation& getRelation() const {
