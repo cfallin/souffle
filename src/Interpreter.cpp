@@ -1250,6 +1250,16 @@ void Interpreter::invoke(const RamProgram& prog, InterpreterEnvironment& env) co
 	std::cerr << e.what();
 	exit(1);
     }
+
+    if (env.getEnableHypotheses()) {
+	try {
+	    env.getBDD().writeFile(Global::getBDDNodesOutFilepath());
+	} catch (std::exception& e) {
+	    std::cerr << e.what();
+	    exit(1);
+	}
+    }
+    
     SignalHandler::instance()->reset();
 }
 

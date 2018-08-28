@@ -138,6 +138,9 @@ public:
     static inline std::string getSymtabFilename() {
 	return "__souffle_symtab.csv";
     }
+    static inline std::string getBDDNodesFilename() {
+	return "__souffle_bdd_nodes.csv";
+    }
     static inline std::string getRecordOutFilepath() {
 	return config().get("output-dir") + "/" + getRecordFilename();
     }
@@ -149,6 +152,9 @@ public:
     }
     static inline std::string getSymtabInFilepath() {
 	return config().get("fact-dir") + "/" + getSymtabFilename();
+    }
+    static inline std::string getBDDNodesOutFilepath() {
+	return config().get("output-dir") + "/" + getBDDNodesFilename();
     }
 };
 }  // namespace souffle

@@ -344,6 +344,9 @@ public:
 	BDDValue curPred = static_cast<BDDValue>(curTuple[arity]);
 	BDDVar curPredVar = static_cast<BDDVar>(curTuple[arity + 1]);
 
+	// keep the below new BDD nodes local -- we don't save them, so avoid polluting the BDD
+	BDD::SubFrame sf(*bdd);
+	
 	BDDValue c = curPredVar != 0 ? bdd->make_and(curPred, bdd->make_var(curPredVar)) : curPred;
 	BDDValue n = var != 0 ? bdd->make_and(pred, bdd->make_var(var)) : pred;
 	// The current tuple's predicate covers the new tuple's

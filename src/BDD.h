@@ -20,6 +20,8 @@
 #include <map>
 #include <mutex>
 #include <atomic>
+#include <string>
+#include <fstream>
 #include <stdint.h>
 #include <assert.h>
 
@@ -33,7 +35,26 @@ public:
     static const BDDValue FALSE = static_cast<uint64_t>(0);
     static const BDDValue TRUE = static_cast<uint64_t>(1);
 
+    struct SubFrame {
+        BDD& bdd;
+        std::lock_guard<std::recursive_mutex> guard;
+        size_t node_size;
+        BDDVar next_var;
+
+        SubFrame(BDD& bdd)
+                : bdd(bdd), guard(bdd.lock_), node_size(bdd.nodes_.size()), next_var(bdd.next_var_.load()) {}
+        ~SubFrame() {
+	    for (size_t i = node_size; i < bdd.nodes_.size(); i++) {
+		bdd.nodes_reverse_.erase(bdd.nodes_[i]);
+	    }
+	    bdd.nodes_.resize(node_size);
+	    bdd.next_var_.store(next_var);
+	}
+    };
+
 private:
+    friend class SubFrame;
+
     struct Node {
         BDDVar var;
         BDDValue hi;
@@ -50,7 +71,7 @@ private:
 
     static const BDDVar MAX_VAR = UINT64_MAX;
 
-    std::mutex lock_;
+    std::recursive_mutex lock_;
     std::vector<Node> nodes_;
     std::map<Node, BDDValue> nodes_reverse_;
     std::atomic<BDDVar> next_var_;
@@ -149,27 +170,39 @@ public:
     }
 
     BDDValue make_var(BDDVar var) {
-	std::lock_guard<std::mutex> guard(lock_);
+	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return intern(var, one(), zero());
     }
 
     BDDValue make_not(BDDValue a) {
-	std::lock_guard<std::mutex> guard(lock_);
+	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return ite(a, zero(), one());
     }
 
     BDDValue make_and(BDDValue a, BDDValue b) {
-	std::lock_guard<std::mutex> guard(lock_);
+	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return ite(a, b, zero());
     }
 
     BDDValue make_or(BDDValue a, BDDValue b) {
-	std::lock_guard<std::mutex> guard(lock_);
+	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return ite(a, one(), b);
     }
 
     BDDVar alloc_var() {
 	return next_var_.fetch_add(1);
+    }
+
+    void writeFile(const std::string& nodeFilename) {
+	std::lock_guard<std::recursive_mutex> guard(lock_);
+	std::ofstream nodeFile(nodeFilename);
+
+	nodeFile << "0\tFALSE\n" << "1\tTRUE\n";
+
+	for (size_t i = 2; i < nodes_.size(); i++) {
+	    const Node& n = nodes_[i];
+	    nodeFile << i << "\t" << n.var << "\t" << n.hi << "\t" << n.lo << "\n";
+	}
     }
 };
 
