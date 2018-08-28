@@ -459,6 +459,7 @@ public:
 	for (const auto& var : forallVars) {
 	    res->forallVars.push_back(std::unique_ptr<AstVariable>(var->clone()));
 	}
+	res->hypothetical = hypothetical;
         return res;
     }
 
@@ -497,6 +498,7 @@ public:
 	for (const auto& var : forallVars) {
 	    clone->forallVars.push_back(std::unique_ptr<AstVariable>(var->clone()));
 	}
+	clone->hypothetical = hypothetical;
         return clone;
     }
 
@@ -529,7 +531,8 @@ protected:
         return *head == *other.head && equal_targets(atoms, other.atoms) &&
                equal_targets(negations, other.negations) && equal_targets(constraints, other.constraints) &&
 	    ((!forallDomain && !other.forallDomain) || (*forallDomain.get() == *other.forallDomain.get())) &&
-	    equal_targets(forallVars, other.forallVars);
+	    equal_targets(forallVars, other.forallVars) &&
+	    hypothetical == other.hypothetical;
     }
 };
 

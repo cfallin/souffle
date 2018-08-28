@@ -305,6 +305,10 @@ void RamProject::print(std::ostream& os, int tabpos) const {
     if (hasFilter()) {
         os << " UNLESS IN " << getFilter().getName();
     }
+
+    if (getHypothetical()) {
+	os << " ADD NEW PREDICATE VAR";
+    }
 }
 
 /* add condition */

@@ -95,7 +95,7 @@ public:
     InterpreterRelation(size_t relArity, bool enableHypotheses)
             : arity(relArity), num_tuples(0), head(std::make_unique<Block>()), tail(head.get()),
               totalIndex(nullptr), enableHypotheses(enableHypotheses) {
-	physArity = enableHypotheses ? relArity : (relArity + 2);
+	physArity = enableHypotheses ? (relArity + 2) : relArity;
     }
 
     InterpreterRelation(const InterpreterRelation& other) = delete;
@@ -176,6 +176,26 @@ public:
         if (exists(tuple, pred, pred_var)) {
             return;
         }
+
+	// with predication only: look for another tuple with same
+	// values but possibly different predicate, and update the
+	// predicate.
+	if (enableHypotheses && pred_var == 0) {
+	    if (!totalIndex) {
+		totalIndex = getIndex(getTotalIndexKey());
+	    }
+	    auto p = totalIndex->equalRange(tuple);
+	    if (p.first != p.second) {
+		RamDomain* curTuple = const_cast<RamDomain*>(*p.first);
+		// Only possible to merge when no predvar is involved.
+		if (curTuple[arity + 1] == 0) {
+		    curTuple[arity] = bdd->make_or(curTuple[arity], pred);
+		    return;
+		}
+	    }
+	    // Otherwise, no merge possible -- continue below and
+	    // insert new tuple.
+	}
 
         // prepare tail
         if (tail->getFreeSpace() < physArity || physArity == 0) {

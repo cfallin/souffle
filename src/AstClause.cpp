@@ -114,7 +114,7 @@ void AstClause::print(std::ostream& os) const {
         head->print(os);
     }
     if (getBodySize() > 0) {
-        os << " :- \n   ";
+        os << (isHypothetical() ? " ?- \n   " : " :- \n   ");
 	if (forallDomain) {
 	    os << " ∀ " << join(getForallVars(), ", ", print_deref<AstVariable*>());
 	    os << " (given universe ";
