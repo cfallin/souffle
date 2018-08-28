@@ -1163,6 +1163,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		expandRule->addToBody(std::unique_ptr<AstAtom>(cl->getForallDomain()->clone()));
 		expandRule->clearForall();
 		expandRule->setGenerated();
+		expandRule->setHypothetical(false);
                 nameUnnamedVariables(expandRule.get());
 
 #if 0
@@ -1190,6 +1191,11 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		std::cerr << "\n";
 #endif
 		forall2Stmts.push_back(translateClause(*forallRule, program, &typeEnv, 0, false, rel->isHashset()));
+	    }
+
+	    // clear hypothetical flag on initial clause if forall.
+	    if (forall) {
+		cl->setHypothetical(false);
 	    }
 
             // each recursive rule results in several operations
