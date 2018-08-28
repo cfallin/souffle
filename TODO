@@ -1,4 +1,3 @@
-- predicates in forall
 - dump predicate table as file (one line per node)
 - dump predicates as a column alongside output relations
 - predicates in codegen

@@ -64,12 +64,12 @@ public:
      * Return a new WriteStream
      */
     std::unique_ptr<WriteStream> getWriter(const SymbolMask& symbolMask, const SymbolTable& symbolTable,
-            const IODirectives& ioDirectives, const bool provenance) const {
+					   const IODirectives& ioDirectives, const bool provenance, const bool hyp) const {
         std::string ioType = ioDirectives.getIOType();
         if (outputFactories.count(ioType) == 0) {
             throw std::invalid_argument("Requested output type <" + ioType + "> is not supported.");
         }
-        return outputFactories.at(ioType)->getWriter(symbolMask, symbolTable, ioDirectives, provenance);
+        return outputFactories.at(ioType)->getWriter(symbolMask, symbolTable, ioDirectives, provenance, hyp);
     }
     /**
      * Return a new ReadStream

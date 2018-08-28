@@ -266,7 +266,7 @@ private:
 class WriteSQLiteFactory : public WriteStreamFactory {
 public:
     std::unique_ptr<WriteStream> getWriter(const SymbolMask& symbolMask, const SymbolTable& symbolTable,
-            const IODirectives& ioDirectives, const bool provenance) override {
+					   const IODirectives& ioDirectives, const bool provenance, const bool hyp) override {
         std::string dbName = ioDirectives.get("dbname");
         std::string relationName = ioDirectives.getRelationName();
         return std::make_unique<WriteStreamSQLite>(dbName, relationName, symbolMask, symbolTable, provenance);

@@ -95,7 +95,7 @@ public:
     InterpreterRelation(size_t relArity, bool enableHypotheses)
             : arity(relArity), num_tuples(0), head(std::make_unique<Block>()), tail(head.get()),
               totalIndex(nullptr), enableHypotheses(enableHypotheses) {
-	physArity = enableHypotheses ? relArity : relArity + 2;
+	physArity = enableHypotheses ? relArity : (relArity + 2);
     }
 
     InterpreterRelation(const InterpreterRelation& other) = delete;
@@ -410,15 +410,14 @@ public:
         }
 
         // support 0-arity
-        auto arity = getArity();
-        if (arity == 0) {
+        if (getArity() == 0) {
             Block dummyBlock;
             RamDomain dummyTuple;
             return iterator(&dummyBlock, &dummyTuple, 0);
         }
 
         // support non-empty non-zero arity relation
-        return iterator(head.get(), &head->data[0], arity);
+        return iterator(head.get(), &head->data[0], physArity);
     }
 
     /** get iterator begin of relation */

@@ -963,7 +963,7 @@ rule_def
         }
         delete $3;
     }
-  | head IF FORALL atom SLASH LPAREN forall_arg_list RPAREN COLON body DOT {
+  | head if_operator FORALL atom SLASH LPAREN forall_arg_list RPAREN COLON body DOT {
         auto* rulebody = $10;
         auto bodies = rulebody->toClauseBodies();
 	auto heads = $1;
@@ -975,6 +975,7 @@ rule_def
                 cur->setHead(std::unique_ptr<AstAtom>(head->clone()));
                 cur->setSrcLoc(@$);
                 cur->setGenerated(heads.size() != 1 || bodies.size() != 1);
+		cur->setHypothetical($2);
 		cur->setForallDomain(std::unique_ptr<AstAtom>(forallDom->clone()));
 	        for (auto* var : vars) {
 	            cur->addForallVar(std::unique_ptr<AstVariable>(var->clone()));
