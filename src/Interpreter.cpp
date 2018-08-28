@@ -72,7 +72,12 @@ private:
 
 
 public:
-    EvalContext(size_t size = 0) : data(size), preds(size, BDD::TRUE) {}
+    EvalContext(size_t size = 0) : data(size) {
+	BDDValue t = BDD::TRUE;
+	for (size_t i = 0; i < size; i++) {
+	    preds.push_back(t);
+	}
+    }
 
     const RamDomain*& operator[](size_t index) {
         return data[index];
@@ -130,6 +135,10 @@ public:
     }
 
     BDDValue& pred(size_t i) {
+	return preds[i];
+    }
+
+    const BDDValue& pred(size_t i) const {
 	return preds[i];
     }
 };
@@ -364,7 +373,7 @@ BDDValue eval(const RamCondition& cond, InterpreterEnvironment& env, const EvalC
                     tuple[i] = (values[i]) ? eval(values[i], env, ctxt) : MIN_RAM_DOMAIN;
                 }
 
-                return !rel.exists(tuple, pred);
+                return !rel.exists(tuple, pred, 0);
             }
 
             // for partial we search for lower and upper boundaries
@@ -380,7 +389,8 @@ BDDValue eval(const RamCondition& cond, InterpreterEnvironment& env, const EvalC
             auto range = idx->lowerUpperBound(low, high);
 	    if (env.getEnableHypotheses()) {
 		BDDValue exists = BDD::FALSE;
-		for (const auto* tuple : range) {
+		for (auto it = range.first; it != range.second; ++it) {
+		    const auto* tuple = *it;
 		    BDDValue thisPred = tuple[rel.getArity()];
 		    BDDVar thisPredVar = tuple[rel.getArity() + 1];
 		    thisPred = thisPredVar != 0 ? bdd.make_and(thisPred, bdd.make_var(thisPredVar)) : thisPred;
@@ -563,7 +573,8 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
             if (scan.isPureExistenceCheck()) {
 		if (env.getEnableHypotheses()) {
 		    BDDValue pred = BDD::FALSE;
-		    for (const RamDomain* tuple : range) {
+		    for (auto it = range.first; it != range.second; ++it) {
+			const auto* tuple = *it;
 			BDDValue tuplePred = tuple[rel.getArity()];
 			BDDVar tupleVar = tuple[rel.getArity() + 1];
 			tuplePred = tupleVar != 0 ?
@@ -572,7 +583,7 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 			pred = bdd.make_or(pred, tuplePred);
 		    }
 		    ctxt.pred(scan.getLevel()) = bdd.make_and(thisPred, pred);
-		    if (ctx.preds[scan.getLevel()] != BDD::FALSE) {
+		    if (ctxt.pred(scan.getLevel()) != BDD::FALSE) {
 			visitSearch(scan);
 		    }
 		} else {
@@ -591,8 +602,8 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 		ctxt[scan.getLevel()] = data;
 		BDDValue tuplePred = BDD::TRUE;
 		if (env.getEnableHypotheses()) {
-		    tuplePred = tuple[rel.getArity()];
-		    BDDVar tupleVar = tuple[rel.getArity() + 1];
+		    tuplePred = data[rel.getArity()];
+		    BDDVar tupleVar = data[rel.getArity() + 1];
 		    tuplePred = tupleVar != 0 ?
 			bdd.make_and(tuplePred, bdd.make_var(tupleVar)) :
 			tuplePred;
