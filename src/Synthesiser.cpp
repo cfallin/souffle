@@ -141,6 +141,19 @@ static const std::string getRelationName(const RamRelation& rel) {
 static const std::string getOpContextName(const RamRelation& rel) {
     return getRelationName(rel) + "_op_ctxt";
 }
+   
+std::string getTupleType(std::size_t arity) {
+    std::stringstream res;
+    bool predicated = Global::config().has("predicated");
+    res << "ram::Tuple<RamDomain, " << (predicated ? (arity + 2) : arity) << ">";
+    return res.str();
+}
+
+std::string getRecordTupleType(std::size_t arity) {
+    std::stringstream res;
+    res << "ram::Tuple<RamDomain, " << arity << ">";
+    return res.str();
+}
 
 std::string getRelationType(const RamRelation& rel, std::size_t arity, const IndexSet& indexes) {
     std::stringstream res;
@@ -174,7 +187,9 @@ std::string getRelationType(const RamRelation& rel, std::size_t arity, const Ind
         }
     }
 
-    res << arity;
+    bool predicated = Global::config().has("predicated");
+    res << (predicated ? (arity + 2) : arity);
+    
     if (!useNoIndex()) {
         for (auto& cur : indexes.getAllOrders()) {
             res << ", ram::index<";
@@ -313,6 +328,7 @@ public:
             out << "SymbolMask({" << store.getRelation().getSymbolMask() << "})";
             out << ", symTable, ioDirectives";
             out << ", " << Global::config().has("provenance");
+	    out << ", " << Global::config().has("predicated");
             out << ")->writeAll(*" << getRelationName(store.getRelation()) << ");\n";
             out << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
         }
@@ -669,7 +685,7 @@ public:
         auto arity = lookup.getArity();
 
         // get the tuple type working with
-        std::string tuple_type = "ram::Tuple<RamDomain," + toString(arity) + ">";
+        std::string tuple_type = getTupleType(arity);
 
         // look up reference
         out << "auto ref = env" << lookup.getReferenceLevel() << "[" << lookup.getReferencePosition()
@@ -712,7 +728,7 @@ public:
         auto level = forall.getLevel();
 
 	// Construct the tuple being projected at this level.
-	std::string tuple_type = "ram::Tuple<RamDomain," + toString(std::max(1u, arity)) + ">";
+	std::string tuple_type = getTupleType(arity);
 	out << tuple_type << " env" << level << "({\n";
 	for (const auto* arg : forall.getArgs()) {
 	    out << this->print(arg) << ",\n";
@@ -736,8 +752,7 @@ public:
 	    }
 	}
 
-	out << "ram::Tuple<RamDomain, " << arity << "> forallKey({"
-	    << keyVals << "});\n";
+	out << tuple_type << " forallKey({" << keyVals << "});\n";
 
 	// Step 0: probe the domain relation by the specific tuple to
 	// see if this tuple is in the domain. Skip the rest if not.
@@ -779,7 +794,7 @@ public:
         auto level = aggregate.getLevel();
 
         // get the tuple type working with
-        std::string tuple_type = "ram::Tuple<RamDomain," + toString(std::max(1u, arity)) + ">";
+        std::string tuple_type = getTupleType(arity);
 
         // declare environment variable
         out << tuple_type << " env" << level << ";\n";
@@ -1269,7 +1284,7 @@ public:
     void visitPack(const RamPack& pack, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
         out << "pack("
-            << "ram::Tuple<RamDomain," << pack.getValues().size() << ">({" << join(pack.getValues(), ",", rec)
+            << getTupleType(pack.getValues().size()) << "({" << join(pack.getValues(), ",", rec)
             << "})"
             << ")";
         PRINT_END_COMMENT(out);
@@ -1382,7 +1397,7 @@ void Synthesiser::generateCode(
 
     // declare predicate table
     if (Global::config().has("predicated")) {
-	os << "Predicates preds;\n";
+	os << "BDD bdd;\n";
     }
 
     // print relation definitions
@@ -1510,11 +1525,11 @@ void Synthesiser::generateCode(
     os << "switch(r_it->first) {";
     for (int arity: recArities) {
 	os << "case " << arity << ": \n";
-	os << "ram::Tuple<RamDomain, " << arity << "> tuple" << arity << ";\n";
+	os << getTupleType(arity) << " tuple" << arity << ";\n";
 	for (int i = 0; i < arity; ++i) {
 	    os << "tuple" << arity << "["<< i << "] = record[" << i << "];\n";
 	}
-	os << "pack<ram::Tuple<RamDomain, " << arity << ">>(tuple" << arity << ");\n";
+	os << "pack<" << getTupleType(arity) << ">(tuple" << arity << ");\n";
 	os << "break;\n";
     }
     os << "default: break; \n";
@@ -1598,6 +1613,7 @@ void Synthesiser::generateCode(
                 os << "IOSystem::getInstance().getWriter(";
                 os << "SymbolMask({" << store->getRelation().getSymbolMask() << "})";
                 os << ", symTable, ioDirectives, " << Global::config().has("provenance");
+		os << ", " << Global::config().has("predicated");
                 os << ")->writeAll(*" << getRelationName(store->getRelation()) << ");\n";
 
                 os << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
@@ -1629,7 +1645,7 @@ void Synthesiser::generateCode(
     os << "try {\n";
     os << "auto writer = IOSystem::getInstance().getRecordWriter(symTable, writeIODirectives);\n";
     for (int arity: recArities) {
-	os << "printRecords<ram::Tuple<RamDomain," << arity << ">>(writer);\n";
+	os << "printRecords<" << getRecordTupleType(arity) << ">(writer);\n";
     }
     os << "writer->writeSymbolTable();\n";
     os << "} catch (std::exception& e) {\n";
@@ -1672,6 +1688,7 @@ void Synthesiser::generateCode(
         os << "IOSystem::getInstance().getWriter(";
         os << "SymbolMask({" << mask << "})";
         os << ", symTable, ioDirectives, " << Global::config().has("provenance");
+	os << ", " << Global::config().has("predicated");
         os << ")->writeAll(*" << relName << ");\n";
         os << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
     };

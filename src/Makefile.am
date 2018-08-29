@@ -155,6 +155,7 @@ soufflepublic_HEADERS = CompiledOptions.h       \
                         SignalHandler.h         \
                         SouffleInterface.h      \
                         ParallelUtils.h         \
+                        BDD.h                   \
                         BTree.h                 \
                         htmx86.h                \
                         Trie.h                  \
