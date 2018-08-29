@@ -125,7 +125,8 @@
 "sum"                                 { return yy::parser::make_SUM(yylloc); }
 ".strict"                             { return yy::parser::make_STRICT(yylloc); }
 ".plan"                               { return yy::parser::make_PLAN(yylloc); }
-"mincount"                            { return yy::parser::make_MINCOUNT(yylloc); }
+"forall"                              { return yy::parser::make_FORALL(yylloc); }
+"∀"                                   { return yy::parser::make_FORALL(yylloc); } /* Unicode 0x2200 */
 "|"                                   { return yy::parser::make_PIPE(yylloc); }
 "["                                   { return yy::parser::make_LBRACKET(yylloc); }
 "]"                                   { return yy::parser::make_RBRACKET(yylloc); }
@@ -133,11 +134,14 @@
 "+"                                   { return yy::parser::make_PLUS(yylloc); }
 "-"                                   { return yy::parser::make_MINUS(yylloc); }
 "!"                                   { return yy::parser::make_EXCLAMATION(yylloc); }
+"¬"                                   { return yy::parser::make_EXCLAMATION(yylloc); } /* Unicode 0xAC */
 "("                                   { return yy::parser::make_LPAREN(yylloc); }
 ")"                                   { return yy::parser::make_RPAREN(yylloc); }
 ","                                   { return yy::parser::make_COMMA(yylloc); }
+"⋀"                                   { return yy::parser::make_COMMA(yylloc); } /* Unicode 0x22C0 */
 ":"                                   { return yy::parser::make_COLON(yylloc); }
 ";"                                   { return yy::parser::make_SEMICOLON(yylloc); }
+"⋁"                                   { return yy::parser::make_SEMICOLON(yylloc); } /* Unicode 0x22C1 */
 "."                                   { return yy::parser::make_DOT(yylloc); }
 "="                                   { return yy::parser::make_EQUALS(yylloc); }
 "*"                                   { return yy::parser::make_STAR(yylloc); }
@@ -149,6 +153,7 @@
 "<"                                   { return yy::parser::make_LT(yylloc); }
 ">"                                   { return yy::parser::make_GT(yylloc); }
 ":-"                                  { return yy::parser::make_IF(yylloc); }
+"⭠"                                   { return yy::parser::make_IF(yylloc); } /* Unicode 0x2B60 */
 (!=|>=|<=)                            { return yy::parser::make_RELOP(SLOOKUP(yytext), yylloc); }
 [0-9]+"."[0-9]+"."[0-9]+"."[0-9]+     {
                                         try {

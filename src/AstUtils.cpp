@@ -47,6 +47,11 @@ std::set<const AstRelation*> getBodyRelations(const AstClause* clause, const Ast
         visitDepthFirst(
                 *lit, [&](const AstAtom& atom) { bodyRelations.insert(getAtomRelation(&atom, program)); });
     }
+    if (clause->getForallDomain()) {
+	auto* lit = clause->getForallDomain();
+	visitDepthFirst(
+                *lit, [&](const AstAtom& atom) { bodyRelations.insert(getAtomRelation(&atom, program)); });
+    }
     for (const auto& arg : clause->getHead()->getArguments()) {
         visitDepthFirst(
                 *arg, [&](const AstAtom& atom) { bodyRelations.insert(getAtomRelation(&atom, program)); });
@@ -63,6 +68,11 @@ bool hasClauseWithNegatedRelation(const AstRelation* relation, const AstRelation
                 return true;
             }
         }
+	if (cl->isForall()) {
+	    if (negRelation == getAtomRelation(cl->getForallDomain(), program)) {
+		foundLiteral = new AstNegation(std::unique_ptr<AstAtom>(cl->getForallDomain()->clone()));
+	    }
+	}
     }
     return false;
 }

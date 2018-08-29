@@ -174,6 +174,7 @@
 %token LOG                       "log"
 %token EXP                       "exp"
 %token MINCOUNT                  "mincount"
+%token FORALL                    "forall"
 
 %type <uint32_t>                         qualifiers
 %type <AstTypeIdentifier *>              type_id
@@ -198,6 +199,9 @@
 %type <std::vector<AstTypeIdentifier>>   type_params type_param_list
 %type <std::string>                      comp_override
 %type <AstIODirective *>                 key_value_pairs non_empty_key_value_pairs iodirective iodirective_body
+%type <AstVariable *>                    forall_arg
+%type <std::vector<AstVariable*>>        forall_arg_list
+
 %printer { yyoutput << $$; } <*>;
 
 %precedence AS
@@ -803,13 +807,6 @@ atom
         delete $1;
         $$->setSrcLoc(@$);
     }
-  | MINCOUNT LPAREN rel_id LPAREN arg_list RPAREN COMMA arg RPAREN {
-        $$ = $5;               // arg_list
-	$$->setName(*$3);      // rel_id
-	delete $3;             // rel_id
-	$$->setSrcLoc(@$);
-	$$->setMinCount($8);   // arg (min count)
-    }
 
 /* Literal */
 literal
@@ -962,6 +959,53 @@ rule_def
             delete body;
         }
         delete $3;
+    }
+  | head IF FORALL atom SLASH LPAREN forall_arg_list RPAREN COLON body DOT {
+        auto* rulebody = $10;
+        auto bodies = rulebody->toClauseBodies();
+	auto heads = $1;
+	auto forallDom = $4;
+	auto vars = $7;
+        for(const auto& head : heads) {
+            for(AstClause* body : bodies) {
+                AstClause* cur = body->clone();
+                cur->setHead(std::unique_ptr<AstAtom>(head->clone()));
+                cur->setSrcLoc(@$);
+                cur->setGenerated(heads.size() != 1 || bodies.size() != 1);
+		cur->setForallDomain(std::unique_ptr<AstAtom>(forallDom->clone()));
+	        for (auto* var : vars) {
+	            cur->addForallVar(std::unique_ptr<AstVariable>(var->clone()));
+		}
+                $$.push_back(cur);
+            }
+        }
+        for(auto& head : heads) {
+            delete head;
+        }
+        for(AstClause* body : bodies) {
+            delete body;
+        }
+	for (AstVariable* var : vars) {
+	    delete var;
+	}
+	delete forallDom;
+	delete rulebody;
+    }
+
+forall_arg_list
+  : %empty {}
+  | forall_arg {
+        $$.push_back($1);
+    }
+  | forall_arg_list COMMA forall_arg {
+        $$ = $1;
+        $$.push_back($3);
+    }
+
+forall_arg
+  : IDENT {
+        $$ = new AstVariable($1);
+        $$->setSrcLoc(@$);
     }
 
 /* Rule */

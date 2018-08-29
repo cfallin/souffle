@@ -1,0 +1,24 @@
+.decl A(x:symbol, y:symbol, z:symbol, w:symbol)
+.decl B(x:symbol, y:symbol, z:symbol, w:symbol)
+.decl C(x:symbol, y:symbol)
+
+A("a", "b", "c", "d").
+A("a", "b", "c", "e").
+A("a", "b", "d", "f").
+
+A("b", "b", "c", "d").
+A("b", "b", "c", "e").
+A("b", "b", "d", "f").
+
+B("a", "b", "c", "d").
+B("a", "b", "c", "e").
+B("a", "b", "d", "f").
+
+B("b", "b", "c", "d").
+//B("b", "b", "c", "e").
+B("b", "b", "d", "f").
+B("b", "b", "d", "g"). // extra
+
+C(x, y) :- ∀ A(x, y, z, w) / (z, w) : B(x, y, z, w).
+
+.output C

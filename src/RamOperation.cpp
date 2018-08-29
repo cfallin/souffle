@@ -121,11 +121,6 @@ void RamScan::print(std::ostream& os, int tabpos) const {
                 }
             }
         }
-	if (minCount) {
-	    os << " MINCOUNT ";
-	    minCount->print(os);
-	    os << " ";
-	}
     } else {
         if (keys == 0) {
             os << "SCAN " << relation->getName() << " AS t" << level << " ";
@@ -147,14 +142,9 @@ void RamScan::print(std::ostream& os, int tabpos) const {
                 }
             }
         }
-	if (minCount) {
-	    os << " MINCOUNT ";
-	    minCount->print(os);
-	    os << " ";
-	}
     }
     if (auto condition = getCondition()) {
-        os << "WHERE ";
+	os << "WHERE ";
         condition->print(os);
     }
 
@@ -181,6 +171,41 @@ void RamLookup::print(std::ostream& os, int tabpos) const {
 
     os << " FOR \n";
     getNestedOperation()->print(os, tabpos + 1);
+}
+
+void RamForall::print(std::ostream& os, int tabpos) const {
+    os << times('\t', tabpos);
+
+    os << "SCAN (";
+    bool first = true;
+    for (const auto& arg : args) {
+	if (first) {
+	    first = false;
+	} else {
+	    os << ", ";
+	}
+	arg->print(os);
+    }
+
+    os << ") GROUPBY (";
+    
+    first = true;
+    for (size_t i = 0; i < domRelation->getArity(); i++) {
+	if (!(domVars & (1L << i))) {
+	    if (first) {
+		first = false;
+	    } else {
+		os << ", ";
+	    }
+	    args[i]->print(os);
+	}
+    }
+
+    os << "); IF ALL t" << getLevel() << " ∈ ";
+    domRelation->print(os);
+    os << " ARE PRESENT IN GROUP\n";
+
+    getNested()->print(os, tabpos + 1);
 }
 
 /** add condition */

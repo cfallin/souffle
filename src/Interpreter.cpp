@@ -36,8 +36,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <map>
 #include <memory>
 #include <regex>
+#include <set>
 #include <utility>
 
 #include <unistd.h>
@@ -53,6 +55,20 @@ class EvalContext {
     std::vector<RamDomain>* returnValues = nullptr;
     std::vector<bool>* returnErrors = nullptr;
     const std::vector<RamDomain>* args = nullptr;
+
+public:
+    // Foralls: only one forall is active at a time.
+    struct ForallState {
+	bool init;
+	std::set<std::vector<RamDomain>> domVals;
+	std::set<std::vector<RamDomain>> seenVals;
+
+	ForallState() : init(false) {}
+    };
+
+private:
+    std::map<std::vector<RamDomain>, ForallState> forallState;
+
 
 public:
     EvalContext(size_t size = 0) : data(size) {}
@@ -98,6 +114,17 @@ public:
     RamDomain getArgument(size_t i) const {
         assert(args != nullptr && i < args->size() && "argument out of range");
         return (*args)[i];
+    }
+
+    ForallState& getForallState(std::vector<RamDomain> key) {
+	auto it = forallState.find(key);
+	if (it == forallState.end()) {
+	    ForallState newState;
+	    return forallState.insert(
+		it, std::make_pair(std::move(key), newState))->second;
+	} else {
+	    return it->second;
+	}
     }
 };
 
@@ -486,47 +513,19 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 
             // if this scan is not binding anything ...
             if (scan.isPureExistenceCheck()) {
-		// is there a min count constraint? if so, scan over
-		// range and evaluate condition, counting matches.
-		if (scan.getMinCount()) {
-		    RamDomain minCount = eval(scan.getMinCount(), env, ctxt);
-		    RamDomain count = 0;
-		    for (auto ip = range.first; ip != range.second; ++ip) {
-			const RamDomain* data = *(ip);
-			ctxt[scan.getLevel()] = data;
-			count++;
-		    }
-		    if (count >= minCount) {
-			visit(*scan.getNestedOperation());
-		    }
-		} else {
-		    // Otherwise, just an existence check, so any
-		    // non-empty range will match the query.
-		    if (range.first != range.second) {
-			visitSearch(scan);
-		    }
+		// just an existence check, so any non-empty range
+		// will match the query.
+		if (range.first != range.second) {
+		    visitSearch(scan);
 		}
                 return;
             }
 
-	    if (scan.getMinCount()) {
-		RamDomain minCount = eval(scan.getMinCount(), env, ctxt);
-		RamDomain count = 0;
-		for (auto ip = range.first; ip != range.second; ++ip) {
-		    const RamDomain* data = *(ip);
-		    ctxt[scan.getLevel()] = data;
-		    count++;
-		}
-		if (count >= minCount) {
-		    visit(*scan.getNestedOperation());
-		}
-	    } else {
-		// conduct range query
-		for (auto ip = range.first; ip != range.second; ++ip) {
-		    const RamDomain* data = *(ip);
-		    ctxt[scan.getLevel()] = data;
-		    visitSearch(scan);
-		}
+	    // conduct range query
+	    for (auto ip = range.first; ip != range.second; ++ip) {
+		const RamDomain* data = *(ip);
+		ctxt[scan.getLevel()] = data;
+		visitSearch(scan);
 	    }
         }
 
@@ -550,11 +549,70 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
             visitSearch(lookup);
         }
 
+	void visitForall(const RamForall& forall) override {
+	    size_t arity = forall.getArgs().size();
+
+	    // construct the tuple
+            const auto& args = forall.getArgs();
+	    std::vector<RamDomain> tuple;
+            for (size_t i = 0; i < arity; i++) {
+                tuple.push_back(eval(args[i], env, ctxt));
+            }
+
+	    // construct the key and val from the tuple
+	    std::vector<RamDomain> low;
+	    std::vector<RamDomain> high;
+	    SearchColumns valCols = forall.getDomVarColumns();
+	    SearchColumns keyCols = ((1L << arity) - 1) ^ valCols;
+	    for (size_t i = 0; i < arity; i++) {
+		bool isVal = valCols & (1L << i);
+		low.push_back(isVal ? MIN_RAM_DOMAIN : tuple[i]);
+		high.push_back(isVal ? MAX_RAM_DOMAIN : tuple[i]);
+	    }
+
+	    // get the state for this forall instance
+	    auto& state = ctxt.getForallState(low);
+
+	    // initialize the state if needed (count domain vals)
+	    if (!state.init) {
+		// get the domain relation
+		const InterpreterRelation& domRel = env.getRelation(*forall.getDomRelation());
+		if (!keyCols) {
+		    for (auto t : domRel) {
+			std::vector<RamDomain> domVal(t, t + arity);
+			state.domVals.insert(std::move(domVal));
+		    }
+		} else {
+		    auto* index = domRel.getIndex(keyCols);
+		    auto p = index->lowerUpperBound(low.data(), high.data());
+		    for (auto i = p.first; i != p.second; ++i) {
+			const RamDomain* t = *i;
+			std::vector<RamDomain> domVal(t, t + arity);
+			state.domVals.insert(std::move(domVal));
+		    }
+		}
+		state.init = true;
+	    }
+
+	    // if we haven't seen this value before, record it and bump count
+	    auto it = state.seenVals.find(tuple);
+	    if (it == state.seenVals.end()) {
+		auto domIt = state.domVals.find(tuple);
+		if (domIt != state.domVals.end()) {
+		    state.seenVals.insert(it, std::move(tuple));
+		    if (state.seenVals.size() >= state.domVals.size()) {
+			// Reached all domain values -- forall satisified!
+			visit(forall.getNested());
+		    }
+		}
+	    }
+	}
+
         void visitAggregate(const RamAggregate& aggregate) override {
-            // get the targeted relation
+	    // get the targeted relation
             const InterpreterRelation& rel = env.getRelation(aggregate.getRelation());
 
-            // initialize result
+	    // initialize result
             RamDomain res = 0;
             switch (aggregate.getFunction()) {
                 case RamAggregate::MIN:
@@ -873,6 +931,10 @@ void run(const QueryExecutionStrategy& strategy, std::ostream* report, std::ostr
             std::swap(env.getRelation(swap.getFirstRelation()), env.getRelation(swap.getSecondRelation()));
             return true;
         }
+
+	bool visitForallContext(const RamForallContext& fctx) override {
+	    return visit(*fctx.getNested());
+	}
 
         // -- safety net --
 

@@ -174,9 +174,6 @@ protected:
     /** Indexable columns for a range query */
     SearchColumns keys;
 
-    /** Minimum count desired, if existence check */
-    std::unique_ptr<RamValue> minCount;
-
     /**
      * Determines whether this scan operation is merely verifying the existence
      * of a value (e.g. rel(_,_), rel(1,2), rel(1,_) or rel(X,Y) where X and Y are bound)
@@ -190,10 +187,6 @@ public:
     RamScan(std::unique_ptr<RamRelation> r, std::unique_ptr<RamOperation> nested, bool pureExistenceCheck)
             : RamSearch(RN_Scan, std::move(nested)), relation(std::move(r)),
               queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck) {}
-
-    void setMinCount(std::unique_ptr<RamValue> minCount) {
-	this->minCount = std::move(minCount);
-    }
 
     /** Get search relation */
     const RamRelation& getRelation() const {
@@ -216,10 +209,6 @@ public:
         return pureExistenceCheck;
     }
 
-    RamValue* getMinCount() const {
-	return minCount.get();
-    }
-
     /** Print */
     void print(std::ostream& os, int tabpos) const override;
 
@@ -234,9 +223,6 @@ public:
                 res.push_back(cur.get());
             }
         }
-	if (minCount) {
-	    res.push_back(minCount.get());
-	}
         return res;
     }
 
@@ -251,9 +237,6 @@ public:
                 res->queryPattern.push_back(std::unique_ptr<RamValue>(cur->clone()));
             }
         }
-	if (minCount) {
-	    res->minCount = std::unique_ptr<RamValue>(minCount->clone());
-	}
         return res;
     }
 
@@ -265,9 +248,6 @@ public:
                 cur = map(std::move(cur));
             }
         }
-	if (minCount) {
-	    minCount = map(std::move(minCount));
-	}
     }
 
 protected:
@@ -277,10 +257,10 @@ protected:
         const RamScan& other = static_cast<const RamScan&>(node);
         return RamSearch::equal(other) && getRelation() == other.getRelation() &&
                equal_targets(queryPattern, other.queryPattern) && keys == other.keys &&
-               pureExistenceCheck == other.pureExistenceCheck;
+	       pureExistenceCheck == other.pureExistenceCheck;
     }
 };
-
+    
 /**
  * Record lookup
  */
@@ -438,6 +418,108 @@ protected:
         return RamSearch::equal(other) && getRelation() == other.getRelation() &&
                equal_targets(pattern, other.pattern) && keys == other.keys && fun == other.fun &&
                getTargetExpression() == other.getTargetExpression();
+    }
+};
+
+/** Forall aggregation */
+class RamForall : public RamOperation {
+protected:
+    /** Domain relation */
+    std::unique_ptr<RamRelation> domRelation;
+
+    /** Values to connect to each domain-relation argument */
+    std::vector<std::unique_ptr<RamValue>> args;
+
+    /** Forall-domain variables (the rest of the relation columns
+     * indicate forall instance) */
+    SearchColumns domVars;
+
+    /** Nested operation */
+    std::unique_ptr<RamOperation> nested;
+
+public:
+    RamForall(std::unique_ptr<RamRelation> domRelation, std::unique_ptr<RamOperation> nested)
+            : RamOperation(RN_Forall, nested->getLevel() - 1), domRelation(std::move(domRelation)),
+              domVars(0), nested(std::move(nested)) {}
+
+    void addArg(std::unique_ptr<RamValue> arg) {
+	args.push_back(std::move(arg));
+    }
+
+    void addDomVar(size_t idx) {
+	domVars |= (1L << idx);
+    }
+
+    RamRelation* getDomRelation() const {
+	return domRelation.get();
+    }
+
+    std::vector<RamValue*> getArgs() const {
+	return toPtrVector(args);
+    }
+
+    RamOperation* getNested() const {
+	return nested.get();
+    }
+
+    const SearchColumns getDomVarColumns() const {
+	return domVars;
+    }
+
+    const SearchColumns getKeyColumns() const {
+	size_t arity = domRelation->getArity();
+	return ((1L << arity) - 1) ^ domVars;
+    }
+
+    /** Get depth of query */
+    size_t getDepth() const override {
+        return 1 + nested->getDepth();
+    }
+
+    /** Print */
+    void print(std::ostream& os, int tabpos) const override;
+
+    /** Obtain list of child nodes */
+    std::vector<const RamNode*> getChildNodes() const override {
+        auto res = RamOperation::getChildNodes();
+        res.push_back(domRelation.get());
+        for (const auto& cur : args) {
+            res.push_back(cur.get());
+        }
+	res.push_back(nested.get());
+        return res;
+    }
+
+    /** Create clone */
+    RamForall* clone() const override {
+        RamForall* res = new RamForall(std::unique_ptr<RamRelation>(domRelation->clone()),
+				       std::unique_ptr<RamOperation>(nested->clone()));
+        for (auto& cur : args) {
+            res->args.push_back(std::unique_ptr<RamValue>(cur->clone()));
+        }
+	res->domVars = domVars;
+        return res;
+    }
+
+    /** Apply mapper */
+    void apply(const RamNodeMapper& map) override {
+        RamOperation::apply(map);
+        domRelation = map(std::move(domRelation));
+        for (auto& cur : args) {
+            cur = map(std::move(cur));
+        }
+	nested = map(std::move(nested));
+    }
+
+protected:
+    /** Check equality */
+    bool equal(const RamNode& node) const override {
+        assert(dynamic_cast<const RamForall*>(&node));
+        const RamForall& other = static_cast<const RamForall&>(node);
+	return *domRelation.get() == *other.domRelation.get() &&
+	    domVars == other.domVars &&
+	    equal_targets(args, other.args) &&
+	    *nested.get() == *other.nested.get();
     }
 };
 

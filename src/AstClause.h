@@ -258,6 +258,11 @@ protected:
     /** The constraints in the body of this clause */
     std::vector<std::unique_ptr<AstConstraint>> constraints;
 
+    /** The forall domain of this clause, if a forall clause */
+    std::unique_ptr<AstAtom> forallDomain;
+    /** The forall variables of this clause, if a forall clause */
+    std::vector<std::unique_ptr<AstVariable>> forallVars;
+
     /** Determines whether the given execution order should be enforced */
     bool fixedPlan;
 
@@ -279,6 +284,19 @@ public:
 
     /** Add a Literal to the body of the clause */
     void addToBody(std::unique_ptr<AstLiteral> l);
+
+    /** Prepend a literal to the body */
+    void prependToBody(std::unique_ptr<AstLiteral> l);
+
+    void clearHead() {
+	head.reset(nullptr);
+    }
+
+    void clearBody() {
+	atoms.clear();
+	negations.clear();
+	constraints.clear();
+    }
 
     /** Set the head of clause to @p h */
     void setHead(std::unique_ptr<AstAtom> h);
@@ -307,6 +325,10 @@ public:
         return toPtrVector(atoms);
     }
 
+    void replaceAtom(size_t idx, std::unique_ptr<AstAtom> atom) {
+	atoms[idx] = std::move(atom);
+    }
+
     /** Obtains a list of contained negations. */
     std::vector<AstNegation*> getNegations() const {
         return toPtrVector(negations);
@@ -324,6 +346,31 @@ public:
 
     /** Return @p true if the clause is a fact */
     bool isFact() const;
+
+    bool isForall() const {
+	return !!forallDomain;
+    }
+
+    void setForallDomain(std::unique_ptr<AstAtom> d) {
+	forallDomain = std::move(d);
+    }
+
+    void addForallVar(std::unique_ptr<AstVariable> v) {
+	forallVars.push_back(std::move(v));
+    }
+
+    AstAtom* getForallDomain() const {
+	return forallDomain.get();
+    }
+
+    std::vector<AstVariable*> getForallVars() const {
+	return toPtrVector(forallVars);
+    }
+
+    void clearForall() {
+	forallDomain.reset(nullptr);
+	forallVars.clear();
+    }
 
     /** Updates the fixed execution order flag */
     void setFixedExecutionPlan(bool value = true) {
@@ -392,6 +439,12 @@ public:
         }
         res->fixedPlan = fixedPlan;
         res->generated = generated;
+	if (forallDomain) {
+	    res->forallDomain.reset(forallDomain->clone());
+	}
+	for (const auto& var : forallVars) {
+	    res->forallVars.push_back(std::unique_ptr<AstVariable>(var->clone()));
+	}
         return res;
     }
 
@@ -407,6 +460,12 @@ public:
         for (auto& lit : constraints) {
             lit = map(std::move(lit));
         }
+	if (forallDomain) {
+	    forallDomain = map(std::move(forallDomain));
+	}
+	for (auto& var : forallVars) {
+	    var = map(std::move(var));
+	}
     }
 
     /** clone head generates a new clause with the same head but empty body */
@@ -418,6 +477,12 @@ public:
             clone->setExecutionPlan(std::unique_ptr<AstExecutionPlan>(getExecutionPlan()->clone()));
         }
         clone->setFixedExecutionPlan(hasFixedExecutionPlan());
+	if (forallDomain) {
+	    clone->forallDomain.reset(forallDomain->clone());
+	}
+	for (const auto& var : forallVars) {
+	    clone->forallVars.push_back(std::unique_ptr<AstVariable>(var->clone()));
+	}
         return clone;
     }
 
@@ -433,6 +498,12 @@ public:
         for (auto& cur : constraints) {
             res.push_back(cur.get());
         }
+	if (forallDomain) {
+	    res.push_back(forallDomain.get());
+	}
+	for (auto& var : forallVars) {
+	    res.push_back(var.get());
+	}
         return res;
     }
 
@@ -442,7 +513,9 @@ protected:
         assert(dynamic_cast<const AstClause*>(&node));
         const AstClause& other = static_cast<const AstClause&>(node);
         return *head == *other.head && equal_targets(atoms, other.atoms) &&
-               equal_targets(negations, other.negations) && equal_targets(constraints, other.constraints);
+               equal_targets(negations, other.negations) && equal_targets(constraints, other.constraints) &&
+	    ((!forallDomain && !other.forallDomain) || (*forallDomain.get() == *other.forallDomain.get())) &&
+	    equal_targets(forallVars, other.forallVars);
     }
 };
 

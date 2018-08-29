@@ -15,6 +15,7 @@
  ***********************************************************************/
 
 #include "AstTranslator.h"
+#include "AstArgument.h"
 #include "AstClause.h"
 #include "AstIODirective.h"
 #include "AstLogStatement.h"
@@ -175,6 +176,10 @@ std::unique_ptr<RamRelation> getRamRelation(const AstRelation* rel, const TypeEn
     return std::unique_ptr<RamRelation>(new RamRelation(name, arity, attributeNames, attributeTypeQualifiers,
             getSymbolMask(*rel, *typeEnv), rel->isInput(), rel->isComputed(), rel->isOutput(), rel->isBTree(),
 	    rel->isRbtset(), rel->isHashset(), rel->isBrie(), rel->isEqRel(), rel->isData(), istemp));
+}
+
+std::unique_ptr<RamRelation> getRamRelation(size_t tempNum, size_t arity) {
+    return getRamRelation(nullptr, nullptr, "__Temp_" + std::to_string(tempNum), arity, false, false);
 }
 
 std::unique_ptr<RamRelation> getRamRelation(const AstRelation* rel, const TypeEnvironment* typeEnv) {
@@ -489,6 +494,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     std::vector<const AstNode*> op_nesting;
 
     int level = 0;
+
     for (AstAtom* atom : clause.getAtoms()) {
         // index nested variables and records
         typedef std::vector<AstArgument*> arg_list;
@@ -502,9 +508,6 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                 } else if (auto atom = dynamic_cast<const AstAtom*>(curNode)) {
                     nodeArgs.insert(
                             std::make_pair(curNode, std::make_unique<arg_list>(atom->getArguments())));
-		    if (atom->getMinCount()) {
-			nodeArgs[curNode]->push_back(atom->getMinCount());
-		    }
                 } else {
                     assert(false && "node type doesn't have arguments!");
                 }
@@ -584,6 +587,10 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
         // and remember aggregator
         aggregators.push_back(&cur);
     });
+
+    if (clause.isForall()) {
+	level++;  // one inner level for the forall.
+    }
 
     // -- create RAM statement --
 
@@ -694,6 +701,34 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
         }
     }
 
+    // add forall, if specified
+    RamForall* forall = nullptr;
+    if (clause.isForall()) {
+	const AstAtom* domAtom = clause.getForallDomain();
+	forall = new RamForall(getRelation(domAtom), std::move(op));
+	
+	// Set up args.
+	for (size_t i = 0; i < domAtom->getArity(); i++) {
+	    forall->addArg(translateValue(domAtom->getArgument(i), valueIndex));
+	}
+
+	// Set bits for forall-domain columns.
+	for (const auto* var : clause.getForallVars()) {
+	    bool found = false;
+	    for (size_t i = 0; i < domAtom->getArity(); i++) {
+		if (AstVariable* atomVar = dynamic_cast<AstVariable*>(domAtom->getArgument(i))) {
+		    if (atomVar->getName() == var->getName()) {
+			forall->addDomVar(i);
+			found = true;
+			break;
+		    }
+		}
+	    }
+	    assert(found && "Unknown domain variable in forall");
+	}
+	op = std::unique_ptr<RamOperation>(forall);
+    }
+
     // build operation bottom-up
     while (!op_nesting.empty()) {
         // get next operator
@@ -730,11 +765,6 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                             std::unique_ptr<RamValue>(
                                     new RamElementAccess(loc.level, loc.component, loc.name)))));
                 }
-            }
-
-	    if (atom->getMinCount()) {
-		dynamic_cast<RamScan*>(op.get())->setMinCount(
-		    translateValue(atom->getMinCount(), valueIndex));
 	    }
 
             // TODO: support constants in nested records!
@@ -824,7 +854,19 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     }
 
     /* generate the final RAM Insert statement */
-    return std::make_unique<RamInsert>(clause, std::move(op));
+    std::unique_ptr<RamStatement> s = std::make_unique<RamInsert>(clause, std::move(op));
+    if (clause.isForall()) {
+	size_t arity = clause.getForallDomain()->getArity();
+	size_t valArity = clause.getForallVars().size();
+	size_t keyArity = arity - valArity;
+	
+	// wrap the insert in a forall-context (indicates the scope of tuple accumulation).
+	s = std::make_unique<RamForallContext>(std::move(s), arity,
+					       keyArity, valArity,
+					       forall->getKeyColumns(),
+					       forall->getDomVarColumns());
+    }
+    return s;
 }
 
 /* utility for appending statements */
@@ -1016,24 +1058,136 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 
     // --- build main loop ---
 
-    std::unique_ptr<RamParallel> loopSeq(new RamParallel());
+    std::unique_ptr<RamStatement> loopSeq;
 
     // create a utility to check SCC membership
     auto isInSameSCC = [&](
             const AstRelation* rel) { return std::find(scc.begin(), scc.end(), rel) != scc.end(); };
 
+    /*
+     * FORALLS
+     *
+     * Recursive (monotonic) semi-naive evaluation forall translation:
+     * write to an intermediate 'new' relation just for this rule; we
+     * then fill this out with all other tuples from this rule that
+     * fall within the same forall instance, and create a forall on
+     * *that*.
+     *
+     * For example:
+     *
+     * A(x, y) :- ∀ Dom(x, y, z) / (z) : Vals(x, y, z).
+     *
+     * Becomes:
+     *
+     * // A_Tmp1 has same vars as dom.
+     * A_Tmp1(x, y, z) :- Vals_Delta(x, y, z).
+     * // Body below comes from original rule as well.
+     * A_Tmp2(x, y, z) :- Dom(x, y, _), A_Tmp1(x, y, _), Vals(x, y, z).
+     * A_New(x, y) :- ∀ Dom(x, y, z) / (z) : A_Tmp2(x, y, z).
+     */
+
+    std::vector<std::unique_ptr<RamStatement>> forall1Stmts, forall2Stmts, stmts;
+
     /* Compute temp for the current tables */
     for (const AstRelation* rel : scc) {
-        std::unique_ptr<RamStatement> loopRelSeq;
 
         /* Find clauses for relation rel */
         for (size_t i = 0; i < rel->clauseSize(); i++) {
             AstClause* cl = rel->getClause(i);
 
+	    bool forall = cl->isForall();
+
             // skip non-recursive clauses
             if (!recursiveClauses->recursive(cl)) {
                 continue;
             }
+
+#if 0
+	    std::cerr << "-- clause:\n";
+	    cl->print(std::cerr);
+	    std::cerr << "\n";
+#endif
+
+	    // if this is a forall rule, construct a temp relation to
+	    // get all new tuples and their "related" tuples (same
+	    // bin/key) and feed into a final rule that performs the
+	    // forall.
+	    std::unique_ptr<RamRelation> forallAugmentedNewRel;
+	    std::unique_ptr<RamRelation> forallNewRel;
+	    std::unique_ptr<AstAtom> forallNewHead;
+	    if (forall) {
+		tempRelationArity[nextTemp] = cl->getForallDomain()->getArity();
+		forallNewRel = getRamRelation(nextTemp++, cl->getForallDomain()->getArity());
+		tempRelationArity[nextTemp] = cl->getForallDomain()->getArity();
+		forallAugmentedNewRel = getRamRelation(nextTemp++, cl->getForallDomain()->getArity());
+		appendStmt(postamble, std::make_unique<RamDrop>(std::unique_ptr<RamRelation>(forallNewRel->clone())));
+		appendStmt(postamble, std::make_unique<RamDrop>(std::unique_ptr<RamRelation>(forallAugmentedNewRel->clone())));
+		appendStmt(loopSeq, std::make_unique<RamClear>(std::unique_ptr<RamRelation>(forallNewRel->clone())));
+		appendStmt(loopSeq, std::make_unique<RamClear>(std::unique_ptr<RamRelation>(forallAugmentedNewRel->clone())));
+		
+		// Rule head for all delta-update rules below:
+		// accumulate into temporary/intermediate relation.
+		forallNewHead.reset(cl->getForallDomain()->clone());
+		forallNewHead->setName(forallNewRel->getName());
+
+		// Create a rule that is a copy of the original,
+		// expanding the new tuple set to include all tuples
+		// for any forall-instance with at least one tuple.
+		std::unique_ptr<AstClause> expandRule(cl->clone());
+		expandRule->clearHead();
+		expandRule->setHead(std::unique_ptr<AstAtom>(cl->getForallDomain()->clone()));
+		expandRule->getHead()->setName(forallAugmentedNewRel->getName());
+		std::unique_ptr<AstAtom> expandDomain(cl->getForallDomain()->clone());
+		std::unique_ptr<AstAtom> expandFirstStage(forallNewHead->clone());
+		// Clear all vars in the args of the atom drawing from
+		// above relation that are in the forall-domain.
+		std::set<std::string> forallVars;
+		for (const AstVariable* v : cl->getForallVars()) {
+		    forallVars.insert(v->getName());
+		}
+		for (size_t i = 0; i < expandDomain->getArity(); i++) {
+		    if (AstVariable* var = dynamic_cast<AstVariable*>(expandDomain->getArgument(i))) {
+			if (forallVars.find(var->getName()) != forallVars.end()) {
+			    // Set to wildcard.
+			    expandDomain->setArgument(
+				i, std::unique_ptr<AstArgument>(new AstUnnamedVariable()));
+			    expandFirstStage->setArgument(
+				i, std::unique_ptr<AstArgument>(new AstUnnamedVariable()));
+			}
+		    }
+		}
+		expandRule->prependToBody(std::move(expandFirstStage));
+		expandRule->addToBody(std::unique_ptr<AstAtom>(cl->getForallDomain()->clone()));
+		expandRule->clearForall();
+		expandRule->setGenerated();
+                nameUnnamedVariables(expandRule.get());
+
+#if 0
+		std::cerr << " -- expanded clause: --\n";
+		expandRule->print(std::cerr);
+		std::cerr << "\n";
+#endif
+		
+		forall1Stmts.push_back(translateClause(*expandRule, program, &typeEnv, 0, false, rel->isHashset()));
+
+		// Create a rule that implements only the forall
+		// behavior of the original, with a body only of the
+		// above (domain-expanded) temporary relation. Modify
+		// to output into the 'new' relation, as below.
+		std::unique_ptr<AstClause> forallRule(cl->clone());
+		forallRule->getHead()->setName(relNew[rel]->getName());
+		forallRule->clearBody();
+		std::unique_ptr<AstAtom> forallRuleBody(forallNewHead->clone());
+		forallRuleBody->setName(forallAugmentedNewRel->getName());
+		forallRule->addToBody(std::move(forallRuleBody));
+		forallRule->setGenerated();
+#if 0
+		std::cerr << " -- expanded clause: --\n";
+		forallRule->print(std::cerr);
+		std::cerr << "\n";
+#endif
+		forall2Stmts.push_back(translateClause(*forallRule, program, &typeEnv, 0, false, rel->isHashset()));
+	    }
 
             // each recursive rule results in several operations
             int version = 0;
@@ -1047,17 +1201,18 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                     continue;
                 }
 
-		// skip mincount atoms
-		if (atom->getMinCount()) {
-		    continue;
-		}
-
                 // modify the processed rule to use relDelta and write to relNew
                 std::unique_ptr<AstClause> r1(cl->clone());
-                r1->getHead()->setName(relNew[rel]->getName());
-                r1->getAtoms()[j]->setName(relDelta[atomRelation]->getName());
-                r1->addToBody(std::unique_ptr<AstLiteral>(
-                        new AstNegation(std::unique_ptr<AstAtom>(cl->getHead()->clone()))));
+		if (!forall) {
+		    r1->getHead()->setName(relNew[rel]->getName());
+		} else {
+		    r1->clearHead();
+		    r1->setHead(std::unique_ptr<AstAtom>(forallNewHead->clone()));
+		    r1->clearForall();
+		}
+		r1->getAtoms()[j]->setName(relDelta[atomRelation]->getName());
+		r1->addToBody(std::unique_ptr<AstLiteral>(
+				  new AstNegation(std::unique_ptr<AstAtom>(cl->getHead()->clone()))));
 
                 // replace wildcards with variables (reduces indices when wildcards are used in recursive
                 // atoms)
@@ -1066,72 +1221,67 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                 // reduce R to P ...
                 for (size_t k = j + 1; k < atoms.size(); k++) {
                     if (isInSameSCC(getAtomRelation(atoms[k], program))) {
-			// skip mincount atoms
-			if (r1->getAtoms()[k]->getMinCount()) {
-			    continue;
-			}
                         AstAtom* cur = r1->getAtoms()[k]->clone();
                         cur->setName(relDelta[getAtomRelation(atoms[k], program)]->getName());
                         r1->addToBody(std::make_unique<AstNegation>(std::unique_ptr<AstAtom>(cur)));
                     }
                 }
 
-                std::unique_ptr<RamStatement> rule =
-                        translateClause(*r1, program, &typeEnv, version, false, rel->isHashset());
+#if 0
+		std::cerr << " -- expanded clause: --\n";
+		r1->print(std::cerr);
+		std::cerr << "\n";
+#endif
 
-                /* add logging */
-                if (Global::config().has("profile")) {
-                    const std::string& relationName = toString(rel->getName());
-                    const AstSrcLocation& srcLocation = cl->getSrcLoc();
-                    const std::string clauseText = stringify(toString(*cl));
-                    const std::string logTimerStatement =
-                            AstLogStatement::tRecursiveRule(relationName, version, srcLocation, clauseText);
-                    const std::string logSizeStatement =
-                            AstLogStatement::nRecursiveRule(relationName, version, srcLocation, clauseText);
-                    rule = std::unique_ptr<RamStatement>(new RamSequence(
-                            std::unique_ptr<RamStatement>(
-                                    new RamLogTimer(std::move(rule), logTimerStatement)),
-                            std::unique_ptr<RamLogSize>(new RamLogSize(
-                                    std::unique_ptr<RamRelation>(relNew[rel]->clone()), logSizeStatement))));
-                }
+		std::unique_ptr<RamStatement> stmt(
+		    translateClause(*r1, program, &typeEnv, version, false, rel->isHashset()));
+		
+		// add debug info
+		std::ostringstream ds;
+		ds << toString(*cl) << "\nin file ";
+		ds << cl->getSrcLoc();
+		stmt = std::make_unique<RamDebugInfo>(std::move(stmt), ds.str());
 
-                // add debug info
-                std::ostringstream ds;
-                ds << toString(*cl) << "\nin file ";
-                ds << cl->getSrcLoc();
-                rule = std::make_unique<RamDebugInfo>(std::move(rule), ds.str());
-
-                // add to loop body
-                appendStmt(loopRelSeq, std::move(rule));
+		stmts.push_back(std::move(stmt));
 
                 // increment version counter
                 version++;
-            }
+	    }	
             assert(cl->getExecutionPlan() == nullptr || version > cl->getExecutionPlan()->getMaxVersion());
         }
-
-        // if there was no rule, continue
-        if (!loopRelSeq) {
-            continue;
-        }
-
-        // label all versions
-        if (Global::config().has("profile")) {
-            const std::string& relationName = toString(rel->getName());
-            const AstSrcLocation& srcLocation = rel->getSrcLoc();
-            const std::string logTimerStatement =
-                    AstLogStatement::tRecursiveRelation(relationName, srcLocation);
-            const std::string logSizeStatement =
-                    AstLogStatement::nRecursiveRelation(relationName, srcLocation);
-            loopRelSeq = std::make_unique<RamLogTimer>(std::move(loopRelSeq), logTimerStatement);
-            appendStmt(loopRelSeq,
-                    std::make_unique<RamLogSize>(
-                            std::unique_ptr<RamRelation>(relNew[rel]->clone()), logSizeStatement));
-        }
-
-        /* add rule computations of a relation to parallel statement */
-        loopSeq->add(std::move(loopRelSeq));
     }
+
+    // -- now actually build the fixpoint loop.
+
+    
+    // Three sections, each with all statements unordered. nulls
+    // separate sections. (Second and third are used only by
+    // forall statements.)
+    stmts.push_back(std::unique_ptr<RamStatement>());
+    for (auto& stmt : forall1Stmts) {
+	stmts.push_back(std::move(stmt));
+    }
+    stmts.push_back(std::unique_ptr<RamStatement>());
+    for (auto& stmt : forall2Stmts) {
+	stmts.push_back(std::move(stmt));
+    }
+    stmts.push_back(std::unique_ptr<RamStatement>());
+
+    std::unique_ptr<RamParallel> parallel(new RamParallel());
+
+    for (auto& rule : stmts) {
+	if (!rule) {
+	    if (!parallel->getStatements().empty()) {
+		appendStmt(loopSeq, std::move(parallel));
+		parallel.reset(new RamParallel());
+	    }
+	    continue;
+	}
+	
+        // add to loop body
+        parallel->add(std::move(rule));
+    }
+	
 
     /* construct exit conditions for odd and even iteration */
     auto addCondition = [](std::unique_ptr<RamCondition>& cond, std::unique_ptr<RamCondition> clause) {
@@ -1148,7 +1298,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
     /* construct fixpoint loop  */
     std::unique_ptr<RamStatement> res;
     if (preamble) appendStmt(res, std::move(preamble));
-    if (!loopSeq->getStatements().empty() && exitCond && updateTable) {
+    if (loopSeq && exitCond && updateTable) {
         appendStmt(res, std::unique_ptr<RamStatement>(new RamLoop(std::move(loopSeq),
                                 std::make_unique<RamExit>(std::move(exitCond)), std::move(updateTable))));
     }
@@ -1294,6 +1444,7 @@ std::unique_ptr<RamProgram> AstTranslator::translateProgram(const AstTranslation
 
         /* translate the body, this is where actual computation happens */
         std::unique_ptr<RamStatement> stmt;
+	tempRelationArity.clear();
         if (!step.recursive()) {
             ASSERT(step.computed().size() == 1 && "SCC contains more than one relation");
             const AstRelation* rel = *step.computed().begin();
@@ -1304,6 +1455,10 @@ std::unique_ptr<RamProgram> AstTranslator::translateProgram(const AstTranslation
             stmt = translateRecursiveRelation(
                     step.computed(), translationUnit.getProgram(), recursiveClauses, typeEnv);
         }
+	for (const auto& p : tempRelationArity) {
+	    std::unique_ptr<RamRelation> r = getRamRelation(p.first, p.second);
+	    appendStmt(current, std::make_unique<RamCreate>(std::move(r)));
+	}
         appendStmt(current, std::move(stmt));
 
         /* store all relations with fault tolerance, and output relations without */
