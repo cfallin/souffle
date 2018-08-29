@@ -256,6 +256,7 @@ class CodeEmitter : public RamVisitor<void, std::ostream&> {
 #endif
 
     std::function<void(std::ostream&, const RamNode*)> rec;
+    bool predicated = Global::config().has("predicated");
 
     struct printer {
         CodeEmitter& p;
@@ -653,6 +654,9 @@ public:
                     out << ",";
                 }
             }
+	    if (predicated) {
+		out << ",0,0";
+	    }
         };
 
         // get index to be queried
@@ -660,7 +664,7 @@ public:
         auto index = toIndex(keys);
 
         // if it is a equality-range query
-        out << "const Tuple<RamDomain," << arity << "> key({";
+        out << "const " << getTupleType(arity) << " key({";
         printKeyTuple();
         out << "});\n";
         out << "auto range = " << relName << "->"
@@ -712,7 +716,11 @@ public:
 		keyColList.push_back(toString(col));
 	    }
 	}
-	out << "ram::Relation<Auto, " << fctx.getArity() << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
+	size_t arity = fctx.getArity();
+	if (predicated) {
+	    arity += 2;
+	}
+	out << "ram::Relation<Auto, " << arity << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
 	
 	visit(*fctx.getNested(), out);
 
@@ -935,6 +943,10 @@ public:
         auto relName = getRelationName(rel);
         auto ctxName = "READ_OP_CONTEXT(" + getOpContextName(rel) + ")";
 
+	if (predicated) {
+	    arity += 2;
+	}
+
         // check condition
         auto condition = project.getCondition();
         if (condition) {
@@ -1072,6 +1084,9 @@ public:
         auto relName = getRelationName(rel);
         auto ctxName = "READ_OP_CONTEXT(" + getOpContextName(rel) + ")";
         auto arity = rel.getArity();
+	if (predicated) {
+	    arity += 2;
+	}
 
         // if it is total we use the contains function
         if (ne.isTotal()) {
@@ -1395,8 +1410,10 @@ void Synthesiser::generateCode(
     os << "public:\n";
     os << "SymbolTable symTable;\n";
 
+    bool predicated = Global::config().has("predicated");
+
     // declare predicate table
-    if (Global::config().has("predicated")) {
+    if (predicated) {
 	os << "BDD bdd;\n";
     }
 
@@ -1411,14 +1428,18 @@ void Synthesiser::generateCode(
         // get some table details
         const auto& rel = create.getRelation();
         int arity = rel.getArity();
+	int physArity = arity;
+	if (predicated) {
+	    physArity += 2;
+	}
         const std::string& raw_name = rel.getName();
         const std::string& name = getRelationName(rel);
 
         // ensure that the type of the new knowledge is the same as that of the delta knowledge
         tempType = (rel.isTemp() && raw_name.find("@delta") != std::string::npos)
-                           ? getRelationType(rel, rel.getArity(), idxAnalysis->getIndexes(rel))
+                           ? getRelationType(rel, arity, idxAnalysis->getIndexes(rel))
                            : tempType;
-        const std::string& type = (rel.isTemp()) ? tempType : getRelationType(rel, rel.getArity(),
+        const std::string& type = (rel.isTemp()) ? tempType : getRelationType(rel, arity,
                                                                       idxAnalysis->getIndexes(rel));
 
         // defining table
@@ -1433,15 +1454,15 @@ void Synthesiser::generateCode(
             os << "souffle::RelationWrapper<";
             os << relCtr++ << ",";
             os << type << ",";
-            os << "Tuple<RamDomain," << arity << ">,";
-            os << arity << ",";
+            os << "Tuple<RamDomain," << physArity << ">,";
+            os << physArity << ",";
             os << (rel.isInput() ? "true" : "false") << ",";
             os << (rel.isComputed() ? "true" : "false");
             os << "> wrapper_" << name << ";\n";
 
             // construct types
-            std::string tupleType = "std::array<const char *," + std::to_string(arity) + ">{";
-            std::string tupleName = "std::array<const char *," + std::to_string(arity) + ">{";
+            std::string tupleType = "std::array<const char *," + std::to_string(physArity) + ">{";
+            std::string tupleName = "std::array<const char *," + std::to_string(physArity) + ">{";
 
             if (rel.getArity()) {
                 tupleType += "\"" + rel.getArgTypeQualifier(0) + "\"";
