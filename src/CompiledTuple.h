@@ -56,6 +56,9 @@ struct Tuple {
 	for (auto it = l.begin(), end = l.end(); it != end; ++it, ++i) {
 	    data[i] = *it;
 	}
+	for (; i < arity; i++) {
+	    data[i] = 0;
+	}
     }
     
     Tuple& operator=(const Tuple& other) {
