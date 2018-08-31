@@ -20,6 +20,7 @@
 #include "CompiledOptions.h"
 #include "CompiledRecord.h"
 #include "CompiledRelation.h"
+#include "CompiledPredicates.h"
 #include "Logger.h"
 #include "ParallelUtils.h"
 #include "SignalHandler.h"

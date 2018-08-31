@@ -8,15 +8,15 @@ namespace souffle {
 
 template<unsigned arity, typename Derived1, typename Derived2>
 static void predHelperMergeWithPredicates(BDD& bdd,
-					  RelationBase<arity, Derived1>* to,
-					  RelationBase<arity, Derived2>* from) {
+					  ram::detail::RelationBase<arity, Derived1>* to,
+					  ram::detail::RelationBase<arity, Derived2>* from) {
     // TODO(cfallin)
 }
 
-template<typename Domain, unsigned arity>
-static BDDValue predHelperTuple(BDD& bdd, BDDValue parent_pred, const Tuple<Domain, arity>& tuple) {
-    BDDValue tuplePred = tuple[arity - 2];
-    BDDVar tupleVar = tuple[arity - 1];
+template<typename tuple_type>
+static BDDValue predHelperTuple(BDD& bdd, BDDValue parent_pred, const tuple_type& tuple) {
+    BDDValue tuplePred = static_cast<BDDValue>(tuple[tuple_type::arity - 2]);
+    BDDVar tupleVar = static_cast<BDDVar>(tuple[tuple_type::arity - 1]);
     if (tupleVar != 0) {
 	tuplePred = bdd.make_and(tuplePred, bdd.make_var(tupleVar));
     }
@@ -29,15 +29,33 @@ static BDDValue predHelperRangeEmpty(BDD& bdd, const Range& range, BDDValue pare
     return parent_pred;
 }
 
-template<typename Domain, unsigned keyArity, unsigned valueArity>
+template<typename rel_type, typename tuple_type>
+static BDDValue predHelperNotExists(BDD& bdd,
+				    const rel_type& rel,
+				    const tuple_type& tuple,
+				    BDDValue parent_pred) {
+    // TODO(cfallin)
+    return BDD::FALSE;
+}
+
+template<typename rel_type, typename tuple_type>
+static void predHelperInsert(rel_type* rel, const tuple_type& tuple) {
+    // TODO(cfallin)
+}
+    
+template<unsigned keyArity, unsigned valueArity>
 class PredHelperForallContext {
+    enum { arity = keyArity + valueArity };
+
     BDD& bdd;
 public:
     PredHelperForallContext(BDD& bdd) : bdd(bdd) {}
 
-    template<typename Derived>
-    BDDValue value(const Tuple<Domain, keyArity>& key, const Tuple<Domain, valueArity>& value,
-		   const RelationBase<arity, Derived>* domainRel) {
+    template<typename key_tuple_type, typename value_tuple_type, typename dom_rel_type>
+    BDDValue value(const key_tuple_type& key,
+		   const value_tuple_type& value,
+		   const dom_rel_type& domainRel,
+		   BDDValue pred) {
 	// TODO(cfallin)
 	return BDD::FALSE;
     }

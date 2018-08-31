@@ -607,7 +607,7 @@ public:
         auto condition = search.getCondition();
         if (condition) {
 	    if (predicated) {
-		out << "BDDValue cond = " << print(condition) << ");\n";
+		out << "BDDValue cond = " << print(condition) << ";\n";
 		out << "if (cond != BDD::FALSE) {\n";
 		out << "BDDValue old_pred = pred;\n";
 		out << "BDDValue pred = bdd.make_and(old_pred, cond);\n";
@@ -776,7 +776,7 @@ public:
 		    valueArity++;
 		}
 	    }
-	    out << "PredHelperForallContext<RamDomain, " << keyArity << ", " << valueArity << "> forallContext(bdd);\n";
+	    out << "PredHelperForallContext<" << keyArity << ", " << valueArity << "> forallContext(bdd);\n";
 	} else {
 	    std::vector<std::string> keyColList;
 	    for (size_t col = 0; col < fctx.getArity(); col++) {
@@ -842,7 +842,7 @@ public:
 	if (predicated) {
 	    size_t valueArity = arity - keyArity;
 	    out << getTupleType(valueArity) << " forallValue({" << valueVals << "});\n";
-	    out << "BDDValue new_pred = forallContext.value(forallKey, foralValue, ";
+	    out << "BDDValue new_pred = forallContext.value(forallKey, forallValue, *";
 	    out << relName << ", pred);\n";
 	    out << "if (new_pred != BDD::FALSE) {\n";
 	    out << "BDDValue pred = new_pred;\n";
@@ -1266,9 +1266,9 @@ public:
         // if it is total we use the contains function
         if (ne.isTotal()) {
 	    if (predicated) {
-		out << "predHelperNotExists(" << relName
+		out << "predHelperNotExists(bdd, " << relName
 		    << ", Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec)
-		    << "}))";
+		    << "}), pred)";
 	    } else {
 		out << "!" << relName << "->"
 		    << "contains(Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec) << "}),"
