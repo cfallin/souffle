@@ -612,7 +612,7 @@ public:
 		out << "BDDValue old_pred = pred;\n";
 		out << "BDDValue pred = bdd.make_and(old_pred, cond);\n";
 		out << "if (pred != BDD::FALSE) {\n";
-		print(search.getNestedOperation());
+		out << print(search.getNestedOperation());
 		out << "}\n";
 		out << "}\n";
 	    } else {
@@ -715,7 +715,7 @@ public:
 	    if (predicated) {
 		out << "if(!range.empty()) {\n";
 		out << "BDDValue old_pred = pred;\n";
-		out << "BDDValue pred = predHelperRangeEmpty(bdd, range, old_pred);\n";
+		out << "BDDValue pred = bdd.make_not(predHelperRangeEmpty(bdd, range, old_pred));\n";
 		out << "if (pred != BDD::FALSE) {\n";
 		visitSearch(scan, out);
 		out << "}\n";
@@ -1837,10 +1837,11 @@ void Synthesiser::generateCode(
     });
     os << "}\n";  // end of printAll() method
 
-    // Print record tables and symtab
     // issue printAllRecords method
     os << "public:\n";
     os << "void printAllRecords(std::string outputDirectory = \".\") {\n";
+    
+    // Print record tables and symtab
     os << "std::string recordsOutFilepath = outputDirectory + \"/\" + \"" + Global::getRecordFilename() + "\";\n";
     os << "std::string symtabOutFilepath = outputDirectory + \"/\" + \"" + Global::getSymtabFilename() + "\";\n";
     os << "std::map<std::string, std::string> writeIODirectivesMap = {\n";
@@ -1860,6 +1861,18 @@ void Synthesiser::generateCode(
     os << "std::cerr << e.what();\n";
     os << "exit(1);\n";
     os << "}\n";
+
+    // Print BDD, if predicated
+    if (Global::config().has("predicated")) {
+	os << "std::string bddOutFilepath = outputDirectory + \"/\" + \"" + Global::getBDDNodesFilename() + "\";\n";
+	os << "try {\n";
+	os << "bdd.writeFile(bddOutFilepath);\n";
+	os << "} catch (std::exception& e) {\n";
+	os << "std::cerr << e.what();\n";
+	os << "exit(1);\n";
+	os << "}\n";
+    }
+    
     os << "}\n";  // end of printAll() method
 
     // issue loadAll method

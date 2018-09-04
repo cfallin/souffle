@@ -11,6 +11,7 @@ namespace souffle {
 template <typename rel_type1, typename rel_type2>
 static void predHelperMergeWithPredicates(BDD& bdd, rel_type1* to, rel_type2* from) {
     for (const auto& tuple : *from) {
+//	std::cout << "merge: tuple " << tuple << "\n";
         predHelperInsert(bdd, to, tuple);
     }
 }
@@ -33,9 +34,13 @@ static BDDValue predHelperRangeEmpty(BDD& bdd, const Range& range, BDDValue pare
     BDDValue ret = BDD::TRUE;
     for (const auto& tuple : range) {
         BDDValue this_pred = predHelperTuple(bdd, parent_pred, tuple);
+//	std::cout << "** RangeEmpty: tuple " << tuple << " this_pred " << this_pred << "\n";
         BDDValue not_present = bdd.make_not(this_pred);
+//	std::cout << "** not present: " << not_present << "\n";
         ret = bdd.make_and(ret, not_present);
+//	std::cout << "** running AND: " << ret << "\n";
     }
+//    std::cout << "*** answer: " << ret << "\n";
     return ret;
 }
 
@@ -61,15 +66,21 @@ template <typename rel_type, typename tuple_type>
 static void predHelperInsert(BDD& bdd, rel_type* rel, const tuple_type& tuple) {
     enum { arity = tuple_type::arity - 2 };
 
+//    std::cout << "predHelperInsert: tuple " << tuple << "\n";
+
     auto range = rel->template equalRange<typename ram::index_utils::get_full_index<arity>::type>(tuple);
     if (range.begin() == range.end()) {
+//	std::cout << " -> inserting new\n";
         rel->insert(tuple);
     } else {
         auto& to_tuple = *range.begin();
+//	std::cout << " -> already exists: " << to_tuple << "\n";
         if (to_tuple[arity + 1] != 0 || tuple[arity + 1] != 0) {
+//	    std::cout << "   -> predvar so can't merge; inserting new\n";
             // if predvar != 0, can't merge
             rel->insert(tuple);
         } else {
+//	    std::cout << "    -> merging pred\n";
             const_cast<RamDomain&>(to_tuple[arity]) = bdd.make_or(to_tuple[arity], tuple[arity]);
         }
     }
@@ -108,17 +119,23 @@ struct PredHelperForall {
 	auto domRange = domain.template equalRange<keycols...>(key);
 	auto valRange = values.template equalRange<keycols...>(key);
 
+//	std::cout << "computeOneKey: val tuple " << key << "\n";
+
 	std::unordered_map<const RamDomain*, BDDValue, Hasher, Equal> valPreds;
 
 	for (const auto& valTuple : valRange) {
+//	    std::cout << " -> val tuple (with same key) " << valTuple << "\n";
 	    BDDValue p = predHelperTuple(bdd, BDD::TRUE, valTuple);
+//	    std::cout << "    -> pred " << p << "\n";
 	    const RamDomain* key = &valTuple[0];
 	    valPreds.insert(std::make_pair(key, p));
 	}
 
 	BDDValue ret = BDD::TRUE;
 	for (const auto& domTuple : domRange) {
+//	    std::cout << " -> dom tuple " << domTuple << "\n";
 	    BDDValue p = predHelperTuple(bdd, BDD::TRUE, domTuple);
+//	    std::cout << "    -> pred " << p << "\n";
 	    const RamDomain* key = &domTuple[0];
 	    auto it = valPreds.find(key);
 	    if (it == valPreds.end()) {

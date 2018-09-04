@@ -32,8 +32,8 @@ typedef uint64_t BDDVar;
 
 class BDD {
 public:
-    static const BDDValue FALSE = static_cast<uint64_t>(0);
-    static const BDDValue TRUE = static_cast<uint64_t>(1);
+    static const BDDValue TRUE = static_cast<uint64_t>(0);
+    static const BDDValue FALSE = static_cast<uint64_t>(1);
 
     struct SubFrame {
         BDD& bdd;
@@ -77,7 +77,7 @@ private:
     std::atomic<BDDVar> next_var_;
 
     static bool not_terminal(BDDValue v) {
-	return v > TRUE;
+	return v != TRUE && v != FALSE;
     }
 
     BDDValue intern(BDDVar var, BDDValue hi, BDDValue lo) {
