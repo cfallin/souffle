@@ -40,15 +40,34 @@ public:
         std::lock_guard<std::recursive_mutex> guard;
         size_t node_size;
         BDDVar next_var;
+	bool canceled;
 
         SubFrame(BDD& bdd)
-                : bdd(bdd), guard(bdd.lock_), node_size(bdd.nodes_.size()), next_var(bdd.next_var_.load()) {}
-        ~SubFrame() {
-	    for (size_t i = node_size; i < bdd.nodes_.size(); i++) {
-		bdd.nodes_reverse_.erase(bdd.nodes_[i]);
+                : bdd(bdd),
+		  guard(bdd.lock_),
+		  node_size(bdd.nodes_.size()),
+		  next_var(bdd.next_var_.load()),
+		  canceled(false) {}
+
+	void cancelRestore() {
+	    canceled = true;
+	}
+
+	BDDValue ret(BDDValue v) {
+	    if (v != BDD::TRUE && v != BDD::FALSE) {
+		cancelRestore();
 	    }
-	    bdd.nodes_.resize(node_size);
-	    bdd.next_var_.store(next_var);
+	    return v;
+	}
+	
+        ~SubFrame() {
+	    if (!canceled) {
+		for (size_t i = node_size; i < bdd.nodes_.size(); i++) {
+		    bdd.nodes_reverse_.erase(bdd.nodes_[i]);
+		}
+		bdd.nodes_.resize(node_size);
+		bdd.next_var_.store(next_var);
+	    }
 	}
     };
 
