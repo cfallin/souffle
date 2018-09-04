@@ -32,8 +32,8 @@ typedef uint64_t BDDVar;
 
 class BDD {
 public:
-    static const BDDValue TRUE = static_cast<uint64_t>(0);
-    static const BDDValue FALSE = static_cast<uint64_t>(1);
+    static const BDDValue FALSE = static_cast<uint64_t>(0);
+    static const BDDValue TRUE = static_cast<uint64_t>(1);
 
     struct SubFrame {
         BDD& bdd;

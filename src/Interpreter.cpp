@@ -449,7 +449,7 @@ BDDValue eval(const RamCondition& cond, InterpreterEnvironment& env, const EvalC
                     tuple[i] = (values[i]) ? eval(values[i], env, ctxt) : MIN_RAM_DOMAIN;
                 }
 
-                return !rel.exists(tuple, pred, 0);
+                return bdd.make_not(rel.exists(tuple, pred, 0));
             }
 
             // for partial we search for lower and upper boundaries
@@ -965,7 +965,8 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 	    }
 
             // check filter relation
-            if (project.hasFilter() && env.getRelation(project.getFilter()).exists(tuple, thisPred, thisVar)) {
+            if (project.hasFilter() &&
+		env.getRelation(project.getFilter()).exists(tuple, thisPred, thisVar)) {
                 return;
             }
 
@@ -1056,7 +1057,7 @@ void run(const QueryExecutionStrategy& strategy, std::ostream* report, std::ostr
         }
 
         bool visitExit(const RamExit& exit) override {
-            return !eval(exit.getCondition(), env);
+            return !(eval(exit.getCondition(), env) == BDD::TRUE);
         }
 
         bool visitLogTimer(const RamLogTimer& timer) override {

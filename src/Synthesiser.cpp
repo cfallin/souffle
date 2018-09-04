@@ -286,8 +286,10 @@ public:
 
     void visitFact(const RamFact& fact, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
+	std::string pred = predicated ? ", BDD::TRUE, 0" : "";
+
         out << getRelationName(fact.getRelation()) << "->"
-            << "insert(" << join(fact.getValues(), ",", rec) << ");\n";
+            << "insert(" << join(fact.getValues(), ",", rec) << pred << ");\n";
         PRINT_END_COMMENT(out);
     }
 
@@ -838,9 +840,10 @@ public:
 
 	// Step 1: insert into forallValsByKey.
 	if (predicated) {
-	    out << "forallValsByKey.insert(env" << level << ");\n";
-	} else {
+	    out << "env" << level << "[" << arity << "] = pred;\n";
 	    out << "predHelperInsert(bdd, &forallValsByKey, env" << level << ");\n";
+	} else {
+	    out << "forallValsByKey.insert(env" << level << ");\n";
 	}
 
 	if (predicated) {
