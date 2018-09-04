@@ -223,6 +223,25 @@ public:
 	    nodeFile << i << "\t" << n.var << "\t" << n.hi << "\t" << n.lo << "\n";
 	}
     }
+
+    BDDValue make_ge(RamDomain a, RamDomain b) const {
+	return (a >= b) ? BDD::TRUE : BDD::FALSE;
+    }
+    BDDValue make_gt(RamDomain a, RamDomain b) const {
+	return (a > b) ? BDD::TRUE : BDD::FALSE;
+    }
+    BDDValue make_le(RamDomain a, RamDomain b) const {
+	return (a <= b) ? BDD::TRUE : BDD::FALSE;
+    }
+    BDDValue make_lt(RamDomain a, RamDomain b) const {
+	return (a < b) ? BDD::TRUE : BDD::FALSE;
+    }
+    BDDValue make_eq(RamDomain a, RamDomain b) const {
+	return (a == b) ? BDD::TRUE : BDD::FALSE;
+    }
+    BDDValue make_ne(RamDomain a, RamDomain b) const {
+	return (a != b) ? BDD::TRUE : BDD::FALSE;
+    }
 };
 
 }  // namespace souffle
