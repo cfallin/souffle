@@ -765,31 +765,22 @@ public:
 
     void visitForallContext(const RamForallContext& fctx, std::ostream& out) override {
 	out << "{\n";
+	
+	std::vector<std::string> keyColList;
+	for (size_t col = 0; col < fctx.getArity(); col++) {
+	    bool isKey = fctx.getKeyCols() & (1L << col);
+	    if (isKey) {
+		keyColList.push_back(toString(col));
+	    }
+	}
+	size_t arity = fctx.getArity();
+	if (predicated) {
+	    arity += 2;
+	}
+	out << "ram::Relation<Auto, " << arity << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
 
 	if (predicated) {
-	    size_t keyArity = 0, valueArity = 0;
-	    for (size_t col = 0; col < fctx.getArity(); col++) {
-		bool isKey = fctx.getKeyCols() & (1L << col);
-		if (isKey) {
-		    keyArity++;
-		} else {
-		    valueArity++;
-		}
-	    }
-	    out << "PredHelperForallContext<" << keyArity << ", " << valueArity << "> forallContext(bdd);\n";
-	} else {
-	    std::vector<std::string> keyColList;
-	    for (size_t col = 0; col < fctx.getArity(); col++) {
-		bool isKey = fctx.getKeyCols() & (1L << col);
-		if (isKey) {
-		    keyColList.push_back(toString(col));
-		}
-	    }
-	    size_t arity = fctx.getArity();
-	    if (predicated) {
-		arity += 2;
-	    }
-	    out << "ram::Relation<Auto, " << arity << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
+	    out << "PredHelperForall<" << fctx.getArity() << ", " << join(keyColList, ", ") << "> forallContext(bdd);\n";
 	}
 	
 	visit(*fctx.getNested(), out);
@@ -839,22 +830,29 @@ public:
 	std::string key_tuple_type = predicated ? getTupleType(keyArity) : tuple_type;
 	out << key_tuple_type << " forallKey({" << keyVals << "});\n";
 
+	// Step 0: probe the domain relation by the specific tuple to
+	// see if this tuple is in the domain. Skip the rest if not.
+	if (!predicated) {
+	    out << "if (" << relName << "->contains(env" << level << ")) {\n";
+	}
+
+	// Step 1: insert into forallValsByKey.
 	if (predicated) {
-	    size_t valueArity = arity - keyArity;
-	    out << getTupleType(valueArity) << " forallValue({" << valueVals << "});\n";
-	    out << "BDDValue new_pred = forallContext.value(forallKey, forallValue, *";
-	    out << relName << ", pred);\n";
+	    out << "forallValsByKey.insert(env" << level << ");\n";
+	} else {
+	    out << "predHelperInsert(bdd, &forallValsByKey, env" << level << ");\n";
+	}
+
+	if (predicated) {
+	    // Predicated case: invoke the helper to compute the forall result for
+	    // this one key.
+	    out << "BDDValue new_pred = forallContext.computeOneKey(*" << relName << ", forallValsByKey, env" << level << ");\n";
 	    out << "if (new_pred != BDD::FALSE) {\n";
 	    out << "BDDValue pred = new_pred;\n";
 	    visit(*forall.getNested(), out);
 	    out << "}\n";
 	} else {
-	    // Step 0: probe the domain relation by the specific tuple to
-	    // see if this tuple is in the domain. Skip the rest if not.
-	    out << "if (" << relName << "->contains(env" << level << ")) {\n";
-
-	    // Step 1: insert into forallValsByKey.
-	    out << "forallValsByKey.insert(env" << level << ");\n";
+	    // Non-predicated case:
 
 	    // Step 2: probe the values-by-key relation and get the count
 	    // for this key.
@@ -1075,7 +1073,7 @@ public:
 
         // insert tuple
 	if (predicated) {
-	    out << "predHelperInsert(" << relName << ", tuple);\n";
+	    out << "predHelperInsert(bdd, " << relName << ", tuple);\n";
 	} else {
 	    if (Global::config().has("profile")) {
 		out << "if (!(" << relName << "->"

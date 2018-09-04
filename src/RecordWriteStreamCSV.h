@@ -51,7 +51,7 @@ public:
 
     ~RecordWriteFileCSV() override = default;
 
-    const std::string& getDelimiter() const { return delimiter; }
+    const std::string& getDelimiter() const override { return delimiter; }
 
     void writeNextLine(std::string& line) override {
 	file << line;
@@ -132,7 +132,7 @@ protected:
 	std::cout << "\n";
     }
 
-    const std::string& getDelimiter() const { return delimiter; }
+    const std::string& getDelimiter() const override { return delimiter; }
 
     const std::string delimiter;
 };
