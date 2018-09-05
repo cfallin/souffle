@@ -17,10 +17,10 @@ static void predHelperMergeWithPredicates(BDD& bdd, rel_type1* to, rel_type2* fr
 
 template <typename tuple_type>
 static BDDValue predHelperTuple(BDD& bdd, BDDValue parent_pred, const tuple_type& tuple) {
-    BDDValue tuplePred = static_cast<BDDValue>(tuple[tuple_type::arity - 2]);
-    BDDVar tupleVar = static_cast<BDDVar>(tuple[tuple_type::arity - 1]);
+    BDDValue tuplePred = BDDValue::from_domain(tuple[tuple_type::arity - 2]);
+    BDDVar tupleVar = BDDVar::from_domain(tuple[tuple_type::arity - 1]);
     BDD::SubFrame sf(bdd);
-    if (tupleVar != 0) {
+    if (tupleVar != BDD::NO_VAR()) {
         tuplePred = bdd.make_and(tuplePred, bdd.make_var(tupleVar));
     }
     return sf.ret(bdd.make_and(parent_pred, tuplePred));
@@ -29,10 +29,10 @@ static BDDValue predHelperTuple(BDD& bdd, BDDValue parent_pred, const tuple_type
 template <typename Range>
 static BDDValue predHelperRangeEmpty(BDD& bdd, const Range& range, BDDValue parent_pred) {
     if (range.empty()) {
-        return BDD::TRUE;
+        return BDD::TRUE();
     }
     BDD::SubFrame sf(bdd);
-    BDDValue ret = BDD::TRUE;
+    BDDValue ret = BDD::TRUE();
     for (const auto& tuple : range) {
         BDDValue this_pred = predHelperTuple(bdd, parent_pred, tuple);
         BDDValue not_present = bdd.make_not(this_pred);
@@ -48,12 +48,12 @@ static BDDValue predHelperNotExists(
 
     auto range = rel->template equalRange<typename ram::index_utils::get_full_index<arity>::type>(tuple);
     if (range.begin() == range.end()) {
-        return BDD::TRUE;
+        return BDD::TRUE();
     } else {
 	BDD::SubFrame sf(bdd);
-        BDDValue exists = BDD::FALSE;
+        BDDValue exists = BDD::FALSE();
         for (const auto& t : range) {
-            BDDValue thisPred = predHelperTuple(bdd, BDD::TRUE, t);
+            BDDValue thisPred = predHelperTuple(bdd, BDD::TRUE(), t);
             exists = bdd.make_or(exists, thisPred);
         }
         return sf.ret(bdd.make_not(exists));
@@ -73,7 +73,9 @@ static void predHelperInsert(BDD& bdd, rel_type* rel, const tuple_type& tuple) {
             // if predvar != 0, can't merge
             rel->insert(tuple);
         } else {
-            const_cast<RamDomain&>(to_tuple[arity]) = bdd.make_or(to_tuple[arity], tuple[arity]);
+            const_cast<RamDomain&>(to_tuple[arity]) =
+		bdd.make_or(BDDValue::from_domain(to_tuple[arity]),
+			    BDDValue::from_domain(tuple[arity])).as_domain();
         }
     }
 }
@@ -114,19 +116,19 @@ struct PredHelperForall {
 	std::unordered_map<const RamDomain*, BDDValue, Hasher, Equal> valPreds;
 
 	for (const auto& valTuple : valRange) {
-	    BDDValue p = predHelperTuple(bdd, BDD::TRUE, valTuple);
+	    BDDValue p = predHelperTuple(bdd, BDD::TRUE(), valTuple);
 	    const RamDomain* key = &valTuple[0];
 	    valPreds.insert(std::make_pair(key, p));
 	}
 
 	BDD::SubFrame sf(bdd);
-	BDDValue ret = BDD::TRUE;
+	BDDValue ret = BDD::TRUE();
 	for (const auto& domTuple : domRange) {
-	    BDDValue dom = predHelperTuple(bdd, BDD::TRUE, domTuple);
+	    BDDValue dom = predHelperTuple(bdd, BDD::TRUE(), domTuple);
 	    const RamDomain* key = &domTuple[0];
 	    auto it = valPreds.find(key);
 	    if (it == valPreds.end()) {
-		return BDD::FALSE;
+		return BDD::FALSE();
 	    }
 	    BDDValue val = it->second;
 	    BDDValue valOrNotDom = bdd.make_or(val, bdd.make_not(dom));

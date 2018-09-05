@@ -21,25 +21,69 @@
 #include <mutex>
 #include <atomic>
 #include <string>
+#include <iostream>
 #include <fstream>
 #include <stdint.h>
 #include <assert.h>
 
+#include "RamTypes.h"
+
 namespace souffle {
 
-typedef uint64_t BDDValue;
-typedef uint64_t BDDVar;
+class BDDValue {
+    friend class BDD;
+    
+    uint64_t val;
+
+    BDDValue(uint64_t v) : val(v) {}
+public:
+    BDDValue() : val(0) {}
+    static BDDValue from_domain(RamDomain d) { return BDDValue(static_cast<uint64_t>(d)); }
+    RamDomain as_domain() const { return static_cast<RamDomain>(val); }
+    bool operator==(const BDDValue& other) const { return val == other.val; }
+    bool operator!=(const BDDValue& other) const { return val != other.val; }
+    bool operator<(const BDDValue& other) const { return val < other.val; }
+    bool operator>(const BDDValue& other) const { return val > other.val; }
+    bool operator<=(const BDDValue& other) const { return val <= other.val; }
+    bool operator>=(const BDDValue& other) const { return val >= other.val; }
+    friend std::ostream& operator<<(std::ostream& os, const BDDValue& v) {
+	os << "BDDValue(" << v.val << ")";
+	return os;
+    }
+};
+class BDDVar {
+    friend class BDD;
+    
+    uint64_t val;
+
+    BDDVar(uint64_t v) : val(v) {}
+public:
+    BDDVar() : val(0) {}
+    static BDDVar from_domain(RamDomain d) { return BDDVar(static_cast<uint64_t>(d)); }
+    RamDomain as_domain() const { return static_cast<RamDomain>(val); }
+    bool operator==(const BDDVar& other) const { return val == other.val; }
+    bool operator!=(const BDDVar& other) const { return val != other.val; }
+    bool operator<(const BDDVar& other) const { return val < other.val; }
+    bool operator>(const BDDVar& other) const { return val > other.val; }
+    bool operator<=(const BDDVar& other) const { return val <= other.val; }
+    bool operator>=(const BDDVar& other) const { return val >= other.val; }
+    friend std::ostream& operator<<(std::ostream& os, const BDDVar& v) {
+	os << "BDDVar(" << v.val << ")";
+	return os;
+    }
+};
 
 class BDD {
 public:
-    static const BDDValue FALSE = static_cast<uint64_t>(0);
-    static const BDDValue TRUE = static_cast<uint64_t>(1);
+    static BDDValue FALSE() { return BDDValue(0); }
+    static BDDValue TRUE() { return BDDValue(1); }
+    static BDDVar NO_VAR() { return BDDVar(0); }
 
     struct SubFrame {
         BDD& bdd;
         std::lock_guard<std::recursive_mutex> guard;
         size_t node_size;
-        BDDVar next_var;
+        uint64_t next_var;
 	bool canceled;
 
         SubFrame(BDD& bdd)
@@ -54,7 +98,7 @@ public:
 	}
 
 	BDDValue ret(BDDValue v) {
-	    if (v != BDD::TRUE && v != BDD::FALSE) {
+	    if (v != BDD::TRUE() && v != BDD::FALSE()) {
 		cancelRestore();
 	    }
 	    return v;
@@ -88,15 +132,15 @@ private:
         }
     };
 
-    static const BDDVar MAX_VAR = UINT64_MAX;
+    static BDDVar MAX_VAR() { return BDDVar(UINT64_MAX); }
 
     std::recursive_mutex lock_;
     std::vector<Node> nodes_;
     std::map<Node, BDDValue> nodes_reverse_;
-    std::atomic<BDDVar> next_var_;
+    std::atomic<uint64_t> next_var_;
 
     static bool not_terminal(BDDValue v) {
-	return v != TRUE && v != FALSE;
+	return v != TRUE() && v != FALSE();
     }
 
     BDDValue intern(BDDVar var, BDDValue hi, BDDValue lo) {
@@ -108,7 +152,7 @@ private:
 	if (it != nodes_reverse_.end()) {
 	    return it->second;
 	} else {
-	    BDDValue val = nodes_.size();
+	    BDDValue val = BDDValue(nodes_.size());
 	    nodes_.push_back(n);
 	    nodes_reverse_.insert(it, std::make_pair(n, val));
 	    return val;
@@ -116,11 +160,11 @@ private:
     }
 
     Node node(BDDValue v) const {
-	return nodes_[v];
+	return nodes_[v.val];
     }
 
     BDDValue do_restrict(BDDValue func, BDDVar var, bool value) {
-	if (func == FALSE || func == TRUE) {
+	if (func == FALSE() || func == TRUE()) {
 	    return func;
 	} else {
 	    Node n = node(func);
@@ -137,19 +181,19 @@ private:
     }
 
     BDDValue ite(BDDValue cond, BDDValue t, BDDValue f) {
-	if (cond == TRUE) {
+	if (cond == TRUE()) {
 	    return t;
-	} else if (cond == FALSE) {
+	} else if (cond == FALSE()) {
 	    return f;
 	} else if (t == f) {
 	    return t;
-	} else if (t == TRUE && f == FALSE) {
+	} else if (t == TRUE() && f == FALSE()) {
 	    return cond;
 	} else {
 	    Node cn = node(cond);
 	    Node tn = node(t);
 	    Node fn = node(f);
-	    BDDVar min_var = MAX_VAR;
+	    BDDVar min_var = MAX_VAR();
 	    if (not_terminal(cond) && cn.var < min_var) {
 		min_var = cn.var;
 	    }
@@ -159,7 +203,7 @@ private:
 	    if (not_terminal(f) && fn.var < min_var) {
 		min_var = fn.var;
 	    }
-	    assert(min_var != MAX_VAR);
+	    assert(min_var != MAX_VAR());
 
 	    BDDValue c_hi = do_restrict(cond, min_var, true);
 	    BDDValue t_hi = do_restrict(t, min_var, true);
@@ -176,40 +220,33 @@ private:
 public:
     BDD() : next_var_(1) {
 	// false -- placeholder
-	nodes_.push_back(Node { 0, 0, 0 });
+	nodes_.push_back(Node());
 	// true -- placeholder
-	nodes_.push_back(Node { 0, 0, 0 });
-    }
-
-    BDDValue zero() const {
-	return FALSE;
-    }
-    BDDValue one() const {
-	return TRUE;
+	nodes_.push_back(Node());
     }
 
     BDDValue make_var(BDDVar var) {
 	std::lock_guard<std::recursive_mutex> guard(lock_);
-	return intern(var, one(), zero());
+	return intern(var, TRUE(), FALSE());
     }
 
     BDDValue make_not(BDDValue a) {
 	std::lock_guard<std::recursive_mutex> guard(lock_);
-	return ite(a, zero(), one());
+	return ite(a, FALSE(), TRUE());
     }
 
     BDDValue make_and(BDDValue a, BDDValue b) {
 	std::lock_guard<std::recursive_mutex> guard(lock_);
-	return ite(a, b, zero());
+	return ite(a, b, FALSE());
     }
 
     BDDValue make_or(BDDValue a, BDDValue b) {
 	std::lock_guard<std::recursive_mutex> guard(lock_);
-	return ite(a, one(), b);
+	return ite(a, TRUE(), b);
     }
 
     BDDVar alloc_var() {
-	return next_var_.fetch_add(1);
+	return BDDVar(next_var_.fetch_add(1));
     }
 
     void writeFile(const std::string& nodeFilename) {
@@ -220,27 +257,27 @@ public:
 
 	for (size_t i = 2; i < nodes_.size(); i++) {
 	    const Node& n = nodes_[i];
-	    nodeFile << i << "\t" << n.var << "\t" << n.hi << "\t" << n.lo << "\n";
+	    nodeFile << i << "\t" << n.var.val << "\t" << n.hi.val << "\t" << n.lo.val << "\n";
 	}
     }
 
     BDDValue make_ge(RamDomain a, RamDomain b) const {
-	return (a >= b) ? BDD::TRUE : BDD::FALSE;
+	return (a >= b) ? BDD::TRUE() : BDD::FALSE();
     }
     BDDValue make_gt(RamDomain a, RamDomain b) const {
-	return (a > b) ? BDD::TRUE : BDD::FALSE;
+	return (a > b) ? BDD::TRUE() : BDD::FALSE();
     }
     BDDValue make_le(RamDomain a, RamDomain b) const {
-	return (a <= b) ? BDD::TRUE : BDD::FALSE;
+	return (a <= b) ? BDD::TRUE() : BDD::FALSE();
     }
     BDDValue make_lt(RamDomain a, RamDomain b) const {
-	return (a < b) ? BDD::TRUE : BDD::FALSE;
+	return (a < b) ? BDD::TRUE() : BDD::FALSE();
     }
     BDDValue make_eq(RamDomain a, RamDomain b) const {
-	return (a == b) ? BDD::TRUE : BDD::FALSE;
+	return (a == b) ? BDD::TRUE() : BDD::FALSE();
     }
     BDDValue make_ne(RamDomain a, RamDomain b) const {
-	return (a != b) ? BDD::TRUE : BDD::FALSE;
+	return (a != b) ? BDD::TRUE() : BDD::FALSE();
     }
 };
 

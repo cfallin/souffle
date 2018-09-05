@@ -183,10 +183,15 @@ protected:
      */
     bool pureExistenceCheck;
 
+    /** Is this a hypothetical-filter scan (accepting only
+     * universally-true tuples)? */
+    bool hypFilter;
+
 public:
     RamScan(std::unique_ptr<RamRelation> r, std::unique_ptr<RamOperation> nested, bool pureExistenceCheck)
             : RamSearch(RN_Scan, std::move(nested)), relation(std::move(r)),
-              queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck) {}
+              queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck),
+	      hypFilter(false) {}
 
     /** Get search relation */
     const RamRelation& getRelation() const {
@@ -207,6 +212,14 @@ public:
     // TODO (#541): rename pure existence check to complete/whole etc.
     bool isPureExistenceCheck() const {
         return pureExistenceCheck;
+    }
+
+    void setHypFilter(bool value) {
+	hypFilter = value;
+    }
+
+    bool isHypFilter() const {
+	return hypFilter;
     }
 
     /** Print */
@@ -237,6 +250,7 @@ public:
                 res->queryPattern.push_back(std::unique_ptr<RamValue>(cur->clone()));
             }
         }
+	res->hypFilter = hypFilter;
         return res;
     }
 
@@ -257,7 +271,8 @@ protected:
         const RamScan& other = static_cast<const RamScan&>(node);
         return RamSearch::equal(other) && getRelation() == other.getRelation() &&
                equal_targets(queryPattern, other.queryPattern) && keys == other.keys &&
-	       pureExistenceCheck == other.pureExistenceCheck;
+	       pureExistenceCheck == other.pureExistenceCheck &&
+	       hypFilter == other.hypFilter;
     }
 };
     

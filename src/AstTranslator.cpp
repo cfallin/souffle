@@ -770,6 +770,10 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                 }
 	    }
 
+	    if (atom->isHypFilter()) {
+		dynamic_cast<RamScan*>(op.get())->setHypFilter(true);
+	    }
+
             // TODO: support constants in nested records!
         } else if (const AstRecordInit* rec = dynamic_cast<const AstRecordInit*>(cur)) {
             // add an unpack level

@@ -147,6 +147,9 @@ void RamScan::print(std::ostream& os, int tabpos) const {
 	os << "WHERE ";
         condition->print(os);
     }
+    if (hypFilter) {
+	os << " FILTER HYPOTHETICALS";
+    }
 
     os << "\n";
     if (getNestedOperation() != nullptr) {

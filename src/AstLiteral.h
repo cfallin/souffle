@@ -66,8 +66,11 @@ protected:
     /** Arguments of the atom */
     std::vector<std::unique_ptr<AstArgument>> arguments;
 
+    /** When predicated/hypothetical: do we only accept universally-true tuples? */
+    bool hypFilter;
+
 public:
-    AstAtom(const AstRelationIdentifier& name = AstRelationIdentifier()) : name(name) {}
+    AstAtom(const AstRelationIdentifier& name = AstRelationIdentifier()) : name(name), hypFilter(false) {}
 
     ~AstAtom() override = default;
 
@@ -116,8 +119,20 @@ public:
         return arguments.size();
     }
 
+    void setHypFilter(bool value) {
+	hypFilter = value;
+    }
+
+    bool isHypFilter() const {
+	return hypFilter;
+    }
+
     /** Output to a given stream */
     void print(std::ostream& os) const override {
+	if  (hypFilter) {
+	    os << "+";
+	}
+
         os << getName() << "(";
 
         for (size_t i = 0; i < arguments.size(); ++i) {
@@ -140,6 +155,7 @@ public:
         for (const auto& cur : arguments) {
             res->arguments.push_back(std::unique_ptr<AstArgument>(cur->clone()));
         }
+	res->hypFilter = hypFilter;
         return res;
     }
 
@@ -164,7 +180,8 @@ protected:
     bool equal(const AstNode& node) const override {
         assert(dynamic_cast<const AstAtom*>(&node));
         const AstAtom& other = static_cast<const AstAtom&>(node);
-        return name == other.name && equal_targets(arguments, other.arguments);
+        return name == other.name && equal_targets(arguments, other.arguments) &&
+	    hypFilter == other.hypFilter;
     }
 };
 

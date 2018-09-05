@@ -158,7 +158,7 @@ public:
 
     /** Insert tuple */
     virtual void insert(const RamDomain* tuple) {
-	insert(tuple, BDD::TRUE, 0);
+	insert(tuple, BDD::TRUE(), BDD::NO_VAR());
     }
 
     /** Insert tuple */
@@ -180,7 +180,7 @@ public:
 	// with predication only: look for another tuple with same
 	// values but possibly different predicate, and update the
 	// predicate.
-	if (enableHypotheses && pred_var == 0) {
+	if (enableHypotheses && pred_var == BDD::NO_VAR()) {
 	    if (!totalIndex) {
 		totalIndex = getIndex(getTotalIndexKey());
 	    }
@@ -188,8 +188,8 @@ public:
 	    if (p.first != p.second) {
 		RamDomain* curTuple = const_cast<RamDomain*>(*p.first);
 		// Only possible to merge when no predvar is involved.
-		if (curTuple[arity + 1] == 0) {
-		    curTuple[arity] = bdd->make_or(curTuple[arity], pred);
+		if (BDDVar::from_domain(curTuple[arity + 1]) == BDD::NO_VAR()) {
+		    curTuple[arity] = bdd->make_or(BDDValue::from_domain(curTuple[arity]), pred).as_domain();
 		    return;
 		}
 	    }
@@ -209,8 +209,8 @@ public:
             newTuple[i] = tuple[i];
         }
 	if (enableHypotheses) {
-	    newTuple[arity] = static_cast<RamDomain>(pred);
-	    newTuple[arity + 1] = static_cast<RamDomain>(pred_var);
+	    newTuple[arity] = pred.as_domain();
+	    newTuple[arity + 1] = pred_var.as_domain();
 	}
         tail->used += physArity;
 
@@ -236,7 +236,7 @@ public:
 	assert(enableHypotheses == other.enableHypotheses);
 	if (enableHypotheses) {
 	    for (const auto& cur : other) {
-		insert(cur, static_cast<BDDValue>(cur[arity]), static_cast<BDDVar>(cur[arity + 1]));
+		insert(cur, BDDValue::from_domain(cur[arity]), BDDVar::from_domain(cur[arity + 1]));
 	    }
 	} else {
 	    for (const auto& cur : other) {
@@ -334,7 +334,7 @@ public:
 
     /** check whether a tuple exists in the relation */
     bool exists(const RamDomain* tuple) const {
-	return exists(tuple, BDD::TRUE, 0);
+	return exists(tuple, BDD::TRUE(), BDD::NO_VAR());
     }
 
     /** check whether a tuple exists in the relation with at least the
@@ -361,20 +361,20 @@ public:
 	// the new one.
 	auto p = totalIndex->equalRange(tuple);
 	const RamDomain* curTuple = *p.first;
-	BDDValue curPred = static_cast<BDDValue>(curTuple[arity]);
-	BDDVar curPredVar = static_cast<BDDVar>(curTuple[arity + 1]);
+	BDDValue curPred = BDDValue::from_domain(curTuple[arity]);
+	BDDVar curPredVar = BDDVar::from_domain(curTuple[arity + 1]);
 
 	// keep the below new BDD nodes local -- we don't save them, so avoid polluting the BDD
 	BDD::SubFrame sf(*bdd);
 	
-	BDDValue c = curPredVar != 0 ? bdd->make_and(curPred, bdd->make_var(curPredVar)) : curPred;
-	BDDValue n = var != 0 ? bdd->make_and(pred, bdd->make_var(var)) : pred;
+	BDDValue c = curPredVar != BDD::NO_VAR() ? bdd->make_and(curPred, bdd->make_var(curPredVar)) : curPred;
+	BDDValue n = var != BDD::NO_VAR() ? bdd->make_and(pred, bdd->make_var(var)) : pred;
 	// The current tuple's predicate covers the new tuple's
 	// predicate whenever the current tuple's predicate is true or
 	// the new tuple's predicate is false.
 	BDDValue result = bdd->make_or(c, bdd->make_not(n));
 	// Any non-false value indicates we'll need to make an update.
-	return result != BDD::FALSE;
+	return result != BDD::FALSE();
     }
 
     // --- iterator ---

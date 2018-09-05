@@ -805,9 +805,16 @@ arg_list
 atom
   : rel_id LPAREN arg_list RPAREN {
         $$ = $3;
-        $3->setName(*$1);
+        $$->setName(*$1);
         delete $1;
         $$->setSrcLoc(@$);
+    }
+  | PLUS rel_id LPAREN arg_list RPAREN {
+        $$ = $4;
+        $$->setName(*$2);
+        delete $2;
+        $$->setSrcLoc(@$);
+	$$->setHypFilter(true);
     }
 
 /* Literal */

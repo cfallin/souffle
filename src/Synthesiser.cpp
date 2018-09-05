@@ -286,7 +286,7 @@ public:
 
     void visitFact(const RamFact& fact, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
-	std::string pred = predicated ? ", BDD::TRUE, 0" : "";
+	std::string pred = predicated ? ", BDD::TRUE().as_domain(), BDD::NO_VAR().as_domain()" : "";
 
         out << getRelationName(fact.getRelation()) << "->"
             << "insert(" << join(fact.getValues(), ",", rec) << pred << ");\n";
@@ -342,10 +342,6 @@ public:
     void visitInsert(const RamInsert& insert, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
 
-	if (predicated) {
-	    out << "BDDValue pred = BDD::TRUE;\n";
-	}
-
         // enclose operation with a check for an empty relation
         std::set<RamRelation> input_relations;
         visitDepthFirst(insert, [&](const RamScan& scan) { input_relations.insert(scan.getRelation()); });
@@ -362,6 +358,10 @@ public:
 
         // enclose operation in its own scope
         out << "{\n";
+
+	if (predicated) {
+	    out << "BDDValue pred = BDD::TRUE();\n";
+	}
 
         // create proof counters
         if (Global::config().has("profile")) {
@@ -610,10 +610,10 @@ public:
         if (condition) {
 	    if (predicated) {
 		out << "BDDValue cond = " << print(condition) << ";\n";
-		out << "if (cond != BDD::FALSE) {\n";
+		out << "if (cond != BDD::FALSE()) {\n";
 		out << "BDDValue old_pred = pred;\n";
 		out << "BDDValue pred = bdd.make_and(old_pred, cond);\n";
-		out << "if (pred != BDD::FALSE) {\n";
+		out << "if (pred != BDD::FALSE()) {\n";
 		out << print(search.getNestedOperation());
 		out << "}\n";
 		out << "}\n";
@@ -625,7 +625,7 @@ public:
 	    }
         } else {
 	    if (predicated) {
-		out << "if (pred != BDD::FALSE) {\n";
+		out << "if (pred != BDD::FALSE()) {\n";
 		out << print(search.getNestedOperation());
 		out << "}\n";
 	    } else {
@@ -661,6 +661,9 @@ public:
 		if (predicated) {
 		    out << "BDDValue old_pred = pred;\n";
 		    out << "BDDValue pred = predHelperTuple(bdd, old_pred, env0);\n";
+		    if (scan.isHypFilter()) {
+			out << "if (pred != BDD::TRUE()) { continue; }\n";
+		    }
 		}
                 visitSearch(scan, out);
                 out << "}\n";
@@ -671,6 +674,9 @@ public:
 		if (predicated) {
 		    out << "BDDValue old_pred = pred;\n";
 		    out << "BDDValue pred = predHelperTuple(bdd, old_pred, env" << level << ");\n";
+		    if (scan.isHypFilter()) {
+			out << "if (pred != BDD::TRUE()) { continue; }\n";
+		    }
 		}
                 visitSearch(scan, out);
                 out << "}\n";
@@ -718,7 +724,11 @@ public:
 		out << "if(!range.empty()) {\n";
 		out << "BDDValue old_pred = pred;\n";
 		out << "BDDValue pred = bdd.make_not(predHelperRangeEmpty(bdd, range, old_pred));\n";
-		out << "if (pred != BDD::FALSE) {\n";
+		if (scan.isHypFilter()) {
+		    out << "if (pred == BDD::TRUE()) {\n";
+		} else {
+		    out << "if (pred != BDD::FALSE()) {\n";
+		}
 		visitSearch(scan, out);
 		out << "}\n";
 		out << "}\n";
@@ -732,7 +742,13 @@ public:
 		out << "for(const auto& env" << level << " : range) {\n";
 		out << "BDDValue old_pred = pred;\n";
 		out << "BDDValue pred = predHelperTuple(bdd, old_pred, env" << level << ");\n";
+		if (scan.isHypFilter()) {
+		    out << "if (pred == BDD::TRUE()) {\n";
+		} else {
+		    out << "if (pred != BDD::FALSE()) {\n";
+		}
 		visitSearch(scan, out);
+		out << "}\n";
 		out << "}\n";
 	    } else {
 		out << "for(const auto& env" << level << " : range) {\n";
@@ -850,7 +866,7 @@ public:
 	    // Predicated case: invoke the helper to compute the forall result for
 	    // this one key.
 	    out << "BDDValue new_pred = forallContext.computeOneKey(*" << relName << ", forallValsByKey, env" << level << ");\n";
-	    out << "if (new_pred != BDD::FALSE) {\n";
+	    out << "if (new_pred != BDD::FALSE()) {\n";
 	    out << "BDDValue pred = new_pred;\n";
 	    visit(*forall.getNested(), out);
 	    out << "}\n";
@@ -1043,7 +1059,7 @@ public:
 		out << "BDDValue old_pred = pred;\n";
 		out << "BDDValue cond = " << print(condition) << ";\n";
 		out << "BDDValue pred = bdd.make_and(old_pred, cond);\n";
-		out << "if (pred != BDD::FALSE) {\n";
+		out << "if (pred != BDD::FALSE()) {\n";
 	    } else {
 		out << "if (" << print(condition) << ") {\n";
 	    }
@@ -1057,9 +1073,9 @@ public:
                 << join(project.getValues(), "),(RamDomain)(", rec) << ")});\n";
         }
 	if (predicated) {
-	    out << "tuple[" << (arity - 2) << "] = pred;\n";
+	    out << "tuple[" << (arity - 2) << "] = pred.as_domain();\n";
 	    if (project.getHypothetical()) {
-		out << "tuple[" << (arity - 1) << "] = bdd.alloc_var();\n";
+		out << "tuple[" << (arity - 1) << "] = bdd.alloc_var().as_domain();\n";
 	    }
 	}
 
@@ -1151,7 +1167,7 @@ public:
                 out << print(rel.getLHS());
                 out << "),symTable.resolve((size_t)";
                 out << print(rel.getRHS());
-                out << ")) ? BDD::TRUE : BDD::FALSE";
+                out << ")) ? BDD::TRUE() : BDD::FALSE()";
                 break;
             }
             case BinaryConstraintOp::NOT_MATCH: {
@@ -1159,7 +1175,7 @@ public:
                 out << print(rel.getLHS());
                 out << "),symTable.resolve((size_t)";
                 out << print(rel.getRHS());
-                out << ")) ? BDD::TRUE : BDD::FALSE";
+                out << ")) ? BDD::TRUE() : BDD::FALSE()";
                 break;
             }
             case BinaryConstraintOp::CONTAINS: {
@@ -1167,7 +1183,7 @@ public:
                 out << print(rel.getRHS());
                 out << ")).find(symTable.resolve((size_t)";
                 out << print(rel.getLHS());
-                out << "))!=std::string::npos) ? BDD::TRUE : BDD::FALSE";
+                out << "))!=std::string::npos) ? BDD::TRUE() : BDD::FALSE()";
                 break;
             }
             case BinaryConstraintOp::NOT_CONTAINS: {
@@ -1175,7 +1191,7 @@ public:
                 out << print(rel.getRHS());
                 out << ")).find(symTable.resolve((size_t)";
                 out << print(rel.getLHS());
-                out << "))==std::string::npos) ? BDD::TRUE : BDD::FALSE";
+                out << "))==std::string::npos) ? BDD::TRUE() : BDD::FALSE()";
                 break;
             }
             default:
