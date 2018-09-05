@@ -91,10 +91,13 @@ private:
     /** Pointer to BDD, to be used when manipulating predicates */
     BDD* bdd;
 
+    /** If 0-arity relation (just 1 bit), carry the predicate explicitly */
+    BDDValue empty_rel_pred;
+
 public:
     InterpreterRelation(size_t relArity, bool enableHypotheses)
             : arity(relArity), num_tuples(0), head(std::make_unique<Block>()), tail(head.get()),
-              totalIndex(nullptr), enableHypotheses(enableHypotheses) {
+              totalIndex(nullptr), enableHypotheses(enableHypotheses), empty_rel_pred(BDD::TRUE()) {
 	physArity = enableHypotheses ? (relArity + 2) : relArity;
     }
 
@@ -151,6 +154,28 @@ public:
         return num_tuples == 0;
     }
 
+    BDDValue empty(BDDValue pred) const {
+	if (empty()) {
+	    return BDD::TRUE();
+	}
+	if (enableHypotheses) {
+	    if (arity == 0) {
+		return empty_rel_pred;
+	    }
+	    BDDValue ret = BDD::TRUE();
+	    for (const auto& tuple : *this) {
+		BDDValue thisPred = BDDValue::from_domain(tuple[arity]);
+		BDDVar thisVar = BDDVar::from_domain(tuple[arity + 1]);
+		thisPred = thisVar != BDD::NO_VAR() ?
+		    bdd->make_and(thisPred, bdd->make_var(thisVar)) : thisPred;
+		ret = bdd->make_and(ret, bdd->make_not(thisPred));
+	    }
+	    return ret;
+	} else {
+	    return BDD::FALSE();
+	}
+    }
+
     /** Gets the number of contained tuples */
     size_t size() const {
         return num_tuples;
@@ -167,13 +192,18 @@ public:
         if (arity == 0) {
             // set number of tuples to one -- that's it
             num_tuples = 1;
+	    if (enableHypotheses) {
+		BDDValue thisPred = pred_var != BDD::NO_VAR() ?
+		    bdd->make_and(pred, bdd->make_var(pred_var)) : pred;
+		empty_rel_pred = bdd->make_and(empty_rel_pred, bdd->make_not(thisPred));
+	    }
             return;
         }
 
         ASSERT(tuple);
 
         // make existence check
-        if (exists(tuple, pred, pred_var)) {
+        if (exists(tuple, pred, pred_var) == BDD::TRUE()) {
             return;
         }
 
@@ -334,15 +364,19 @@ public:
 
     /** check whether a tuple exists in the relation */
     bool exists(const RamDomain* tuple) const {
-	return exists(tuple, BDD::TRUE(), BDD::NO_VAR());
+	return exists(tuple, BDD::TRUE(), BDD::NO_VAR()) != BDD::FALSE();
     }
 
     /** check whether a tuple exists in the relation with at least the
      *  given predicate */
-    bool exists(const RamDomain* tuple, BDDValue pred, BDDVar var) const {
+    BDDValue exists(const RamDomain* tuple, BDDValue pred, BDDVar var) const {
 	// handle arity 0
         if (getArity() == 0) {
-            return !empty();
+	    if (empty()) {
+		return BDD::FALSE();
+	    }
+	    BDDValue n = var != BDD::NO_VAR() ? bdd->make_and(pred, bdd->make_var(var)) : pred;
+            return bdd->make_not(empty(n));
         }
 
         // handle all other arities
@@ -350,10 +384,10 @@ public:
             totalIndex = getIndex(getTotalIndexKey());
         }
         if (!totalIndex->exists(tuple)) {
-	    return false;
+	    return BDD::FALSE();
 	}
 	if (!enableHypotheses) {
-	    return true;
+	    return BDD::TRUE();
 	}
 
 	// Tuple exists, but its predicate may be too narrow -- we
@@ -374,7 +408,7 @@ public:
 	// the new tuple's predicate is false.
 	BDDValue result = bdd->make_or(c, bdd->make_not(n));
 	// Any non-false value indicates we'll need to make an update.
-	return result != BDD::FALSE();
+	return sf.ret(result);
     }
 
     // --- iterator ---
@@ -384,11 +418,17 @@ public:
         Block* cur;
         RamDomain* tuple;
         size_t arity;
+	RamDomain fake_empty_tuple[2];
 
     public:
         iterator() : cur(nullptr), tuple(nullptr), arity(0) {}
 
         iterator(Block* c, RamDomain* t, size_t a) : cur(c), tuple(t), arity(a) {}
+
+	iterator(BDDValue pred) :
+	    cur(nullptr), tuple(fake_empty_tuple), arity(0),
+	    fake_empty_tuple { pred.as_domain(), BDD::NO_VAR().as_domain() } {
+	}
 
         const RamDomain* operator*() {
             return tuple;
@@ -403,15 +443,15 @@ public:
         }
 
         iterator& operator++() {
-            // check for end
-            if (!cur) {
-                return *this;
-            }
-
-            // support 0-arity
+	    // support 0-arity
             if (arity == 0) {
                 // move to end
                 *this = iterator();
+                return *this;
+            }
+
+            // check for end
+            if (!cur) {
                 return *this;
             }
 
@@ -434,9 +474,7 @@ public:
 
         // support 0-arity
         if (getArity() == 0) {
-            Block dummyBlock;
-            RamDomain dummyTuple;
-            return iterator(&dummyBlock, &dummyTuple, 0);
+            return iterator(empty_rel_pred);
         }
 
         // support non-empty non-zero arity relation

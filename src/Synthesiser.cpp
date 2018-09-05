@@ -569,7 +569,11 @@ public:
 
     void visitExit(const RamExit& exit, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
-        out << "if(" << print(exit.getCondition()) << ") break;\n";
+	if (predicated) {
+	    out << "if(" << print(exit.getCondition()) << " == BDD::TRUE()) break;\n";
+	} else {
+	    out << "if(" << print(exit.getCondition()) << ") break;\n";
+	}
         PRINT_END_COMMENT(out);
     }
 
@@ -646,10 +650,24 @@ public:
         // if this search is a full scan
         if (scan.getRangeQueryColumns() == 0) {
             if (scan.isPureExistenceCheck()) {
-                out << "if(!" << relName << "->"
-                    << "empty()) {\n";
+		if (predicated) {
+		    out << "{";
+		    out << "BDDValue new_pred = predHelperEmpty(bdd, *" << relName << ", pred);\n";
+		    if (scan.isHypFilter()) {
+			out << "if (new_pred == BDD::TRUE()) {\n";
+		    } else {
+			out << "if (new_pred != BDD::FALSE()) {\n";
+		    }
+		    out << "BDDValue pred = new_pred;\n";
+		} else {
+		    out << "if(!" << relName << "->"
+			<< "empty()) {\n";
+		}
                 visitSearch(scan, out);
                 out << "}\n";
+		if (predicated) {
+		    out << "}\n";
+		}
             } else if (scan.getLevel() == 0) {
                 // make this loop parallel
                 out << "pfor(auto it = part.begin(); it<part.end(); ++it) \n";
@@ -1263,8 +1281,12 @@ public:
 
     void visitEmpty(const RamEmpty& empty, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
-	out << getRelationName(empty.getRelation()) << "->"
-	    << "empty()";
+	if (predicated) {
+	    out << "predHelperEmpty(bdd, *" << getRelationName(empty.getRelation()) << ", pred)";
+	} else {
+	    out << getRelationName(empty.getRelation()) << "->"
+		<< "empty()";
+	}
         PRINT_END_COMMENT(out);
     }
 
@@ -1283,7 +1305,7 @@ public:
         // if it is total we use the contains function
         if (ne.isTotal()) {
 	    if (predicated) {
-		out << "predHelperNotExists(bdd, " << relName
+		out << "predHelperNotExists(bdd, *" << relName
 		    << ", Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec)
 		    << "}), pred)";
 	    } else {
@@ -1786,6 +1808,10 @@ void Synthesiser::generateCode(
     // initialize counter
     os << "// -- initialize counter --\n";
     os << "std::atomic<RamDomain> ctr(0);\n\n";
+
+    if (Global::config().has("predicated")) {
+	os << "BDDValue pred = BDD::TRUE();\n\n";
+    }
 
     // set default threads (in embedded mode)
     if (std::stoi(Global::config().get("jobs")) > 0) {

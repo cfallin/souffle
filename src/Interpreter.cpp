@@ -449,7 +449,7 @@ BDDValue eval(const RamCondition& cond, InterpreterEnvironment& env, const EvalC
                     tuple[i] = (values[i]) ? eval(values[i], env, ctxt) : MIN_RAM_DOMAIN;
                 }
 
-                return bdd.make_not(rel.exists(tuple, pred, BDD::NO_VAR()) ? BDD::TRUE() : BDD::FALSE());
+                return bdd.make_not(rel.exists(tuple, pred, BDD::NO_VAR()));
             }
 
             // for partial we search for lower and upper boundaries
@@ -602,8 +602,11 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
             // process full scan if no index is given
             if (scan.getRangeQueryColumns() == 0) {
                 // if scan is not binding anything => check for emptiness
-                if (scan.isPureExistenceCheck() && !rel.empty()) {
-                    visitSearch(scan);
+                if (scan.isPureExistenceCheck()) {
+		    ctxt.pred(scan.getLevel()) = bdd.make_not(rel.empty(thisPred));
+		    if (!scan.isHypFilter() || ctxt.pred(scan.getLevel()) == BDD::TRUE()) {
+			visitSearch(scan);
+		    }
                     return;
                 }
 
@@ -976,7 +979,7 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 
             // check filter relation
             if (project.hasFilter() &&
-		env.getRelation(project.getFilter()).exists(tuple, thisPred, thisVar)) {
+		env.getRelation(project.getFilter()).exists(tuple, thisPred, thisVar) == BDD::TRUE()) {
                 return;
             }
 

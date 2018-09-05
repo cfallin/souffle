@@ -41,22 +41,49 @@ static BDDValue predHelperRangeEmpty(BDD& bdd, const Range& range, BDDValue pare
     return sf.ret(ret);
 }
 
+template <typename Relation>
+static BDDValue predHelperEmpty(BDD& bdd, const Relation& relation, BDDValue parent_pred) {
+    enum { arity = Relation::tuple_type::arity - 2 };
+    if (arity == 0) {
+	return bdd.make_not(relation.getZeroArityRelPred());
+    }
+
+    if (relation.empty()) {
+        return BDD::TRUE();
+    }
+    BDD::SubFrame sf(bdd);
+    BDDValue ret = BDD::TRUE();
+    for (const auto& tuple : relation) {
+        BDDValue this_pred = predHelperTuple(bdd, parent_pred, tuple);
+        BDDValue not_present = bdd.make_not(this_pred);
+        ret = bdd.make_and(ret, not_present);
+    }
+    return sf.ret(ret);
+}
+
 template <typename rel_type, typename tuple_type>
 static BDDValue predHelperNotExists(
         BDD& bdd, const rel_type& rel, const tuple_type& tuple, BDDValue parent_pred) {
     enum { arity = tuple_type::arity - 2 };
 
-    auto range = rel->template equalRange<typename ram::index_utils::get_full_index<arity>::type>(tuple);
+    BDDValue thisPred = predHelperTuple(bdd, parent_pred, tuple);
+
+    if (arity == 0) {
+	BDDValue relPred = rel.getZeroArityRelPred();
+	return bdd.make_and(thisPred, bdd.make_not(relPred));
+    }
+
+    auto range = rel.template equalRange<typename ram::index_utils::get_full_index<arity>::type>(tuple);
     if (range.begin() == range.end()) {
-        return BDD::TRUE();
+        return thisPred;
     } else {
 	BDD::SubFrame sf(bdd);
-        BDDValue exists = BDD::FALSE();
+        BDDValue not_exists = BDD::TRUE();
         for (const auto& t : range) {
-            BDDValue thisPred = predHelperTuple(bdd, BDD::TRUE(), t);
-            exists = bdd.make_or(exists, thisPred);
+            BDDValue pred = predHelperTuple(bdd, BDD::TRUE(), t);
+	    not_exists = bdd.make_and(not_exists, bdd.make_and(thisPred, bdd.make_not(pred)));
         }
-        return sf.ret(bdd.make_not(exists));
+        return sf.ret(not_exists);
     }
 }
 
@@ -64,15 +91,29 @@ template <typename rel_type, typename tuple_type>
 static void predHelperInsert(BDD& bdd, rel_type* rel, const tuple_type& tuple) {
     enum { arity = tuple_type::arity - 2 };
 
+    if (arity == 0) {
+	BDDValue& relPred = rel->getZeroArityRelPred();
+	BDDValue pred = BDDValue::from_domain(tuple[arity]);
+	BDDVar var = BDDVar::from_domain(tuple[arity + 1]);
+	BDDValue thisPred = var != BDD::NO_VAR() ? bdd.make_and(pred, bdd.make_var(var)) : pred;
+	BDDValue newPred = bdd.make_or(relPred, thisPred);
+	std::cout << "relPred = " << relPred << " pred = " << pred << " newPred = " << newPred << "\n";
+	relPred = newPred;
+	return;
+    }
+
     auto range = rel->template equalRange<typename ram::index_utils::get_full_index<arity>::type>(tuple);
     if (range.begin() == range.end()) {
+	std::cout << "inserting -- no matching tuple\n";
         rel->insert(tuple);
     } else {
         auto& to_tuple = *range.begin();
         if (to_tuple[arity + 1] != 0 || tuple[arity + 1] != 0) {
+	    std::cout << "inserting -- one or other has var\n";
             // if predvar != 0, can't merge
             rel->insert(tuple);
         } else {
+	    std::cout << "merging: old pred " << to_tuple[arity] << "\n";
             const_cast<RamDomain&>(to_tuple[arity]) =
 		bdd.make_or(BDDValue::from_domain(to_tuple[arity]),
 			    BDDValue::from_domain(tuple[arity])).as_domain();

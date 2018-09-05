@@ -220,6 +220,8 @@ namespace detail {
  */
 template <unsigned arity, typename Derived>
 struct RelationBase {
+    BDDValue zero_arity_rel_pred;
+
     // the type of tuple maintained by this relation
     typedef Tuple<RamDomain, arity> tuple_type;
 
@@ -272,6 +274,14 @@ struct RelationBase {
     /* Prints a summary of the hint statistic of this relation */
     void printHintStatistics(std::ostream& out, const std::string& prefix = "") const {
         static_cast<const Derived*>(this)->printHintStatistics(out, prefix);
+    }
+
+    BDDValue& getZeroArityRelPred() {
+	return zero_arity_rel_pred;
+    }
+    
+    const BDDValue& getZeroArityRelPred() const {
+	return zero_arity_rel_pred;
     }
 
 private:
