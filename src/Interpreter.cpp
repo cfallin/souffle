@@ -1123,7 +1123,7 @@ void run(const QueryExecutionStrategy& strategy, std::ostream* report, std::ostr
                 InterpreterRelation& relation = env.getRelation(load.getRelation());
                 std::unique_ptr<ReadStream> reader = IOSystem::getInstance().getReader(
                         load.getRelation().getSymbolMask(), env.getSymbolTable(), load.getIODirectives(),
-                        Global::config().has("provenance"));
+                        Global::config().has("provenance"), Global::config().has("predicated"));
                 reader->readAll(relation);
             } catch (std::exception& e) {
                 std::cerr << e.what();

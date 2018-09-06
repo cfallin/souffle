@@ -313,6 +313,7 @@ public:
         out << "SymbolMask({" << load.getRelation().getSymbolMask() << "})";
         out << ", symTable, ioDirectives";
         out << ", " << Global::config().has("provenance");
+	out << ", " << Global::config().has("predicated");
         out << ")->readAll(*" << getRelationName(load.getRelation());
         out << ");\n";
         out << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
@@ -1945,6 +1946,7 @@ void Synthesiser::generateCode(
         os << "SymbolMask({" << load.getRelation().getSymbolMask() << "})";
         os << ", symTable, ioDirectives";
         os << ", " << Global::config().has("provenance");
+	os << ", " << Global::config().has("predicated");
         os << ")->readAll(*" << getRelationName(load.getRelation());
         os << ");\n";
         os << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
