@@ -347,8 +347,12 @@ public:
         visitDepthFirst(insert, [&](const RamScan& scan) { input_relations.insert(scan.getRelation()); });
         if (!input_relations.empty()) {
             out << "if (" << join(input_relations, "&&", [&](std::ostream& out, const RamRelation& rel) {
-                out << "!" << getRelationName(rel) << "->"
-                    << "empty()";
+		    if (rel.getArity() == 0 && predicated) {
+			out << getRelationName(rel) << "->getZeroArityRelPred() != BDD::FALSE()";
+		    } else {
+			out << "!" << getRelationName(rel) << "->"
+			    << "empty()";
+		    }
             }) << ") ";
         }
 
@@ -652,7 +656,7 @@ public:
             if (scan.isPureExistenceCheck()) {
 		if (predicated) {
 		    out << "{";
-		    out << "BDDValue new_pred = predHelperEmpty(bdd, *" << relName << ", pred);\n";
+		    out << "BDDValue new_pred = bdd.make_not(predHelperEmpty(bdd, *" << relName << ", pred));\n";
 		    if (scan.isHypFilter()) {
 			out << "if (new_pred == BDD::TRUE()) {\n";
 		    } else {

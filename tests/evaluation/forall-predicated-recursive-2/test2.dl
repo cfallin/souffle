@@ -2,7 +2,7 @@
 
 .decl Int(x:number)
 
-Node(x) ?- Int(x), x >= 16.
+Node(x) :- Int(x), x >= 16.
 Node(x) ?- Int(x), Node(2*x), Node(2*x + 1).
 
 
@@ -40,3 +40,35 @@ Int(30).
 Int(31).
 
 .output Node
+
+.decl NodeReal(x:number)
+NodeReal(x) :- +Node(x).
+
+.output NodeReal
+
+.decl NotNode(x:number)
+NotNode(x) :- Int(x), !Node(x).
+
+.decl NodeOrNotNode(x:number)
+NodeOrNotNode(x) :- Int(x), (Node(x); !Node(x)).
+
+.output NotNode
+.output NodeOrNotNode
+
+.decl NotNodeReal(x:number)
+NotNodeReal(x) :- +NotNode(x).
+
+.output NotNodeReal
+
+.decl AnyNode(x:number)
+AnyNode(x) :- Int(x), Node(x_), x_ < 16.
+
+.decl AnyNodeReal(x:number)
+AnyNodeReal(x) :- Int(x), x < 16, +Node(_).
+
+.decl AnyNodeReal2(x:number)
+AnyNodeReal2(x) :- +Node(_), Int(x), x < 16.
+
+.output AnyNode
+.output AnyNodeReal
+.output AnyNodeReal2
