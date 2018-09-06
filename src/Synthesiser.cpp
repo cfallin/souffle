@@ -287,7 +287,10 @@ public:
 
     void visitFact(const RamFact& fact, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
-	std::string pred = predicated ? ", BDD::TRUE().as_domain(), BDD::NO_VAR().as_domain()" : "";
+	std::string pred = predicated ? "BDD::TRUE().as_domain(), BDD::NO_VAR().as_domain()" : "";
+	if (predicated && fact.getValues().size() > 0) {
+	    pred = ", " + pred;
+	}
 
         out << getRelationName(fact.getRelation()) << "->"
             << "insert(" << join(fact.getValues(), ",", rec) << pred << ");\n";
