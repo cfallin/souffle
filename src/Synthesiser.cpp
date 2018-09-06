@@ -155,12 +155,14 @@ std::string getRecordTupleType(std::size_t arity) {
     return res.str();
 }
 
-std::string getRelationType(const RamRelation& rel, std::size_t arity, const IndexSet& indexes) {
+std::string getRelationType(const RamRelation& rel, std::size_t arity, const IndexSet& indexes, bool predicated) {
     std::stringstream res;
     res << "ram::Relation";
     res << "<";
 
-    if (rel.isBTree()) {
+    if (predicated) {
+        res << "BTree,";
+    } else if (rel.isBTree()) {
         res << "BTree,";
     } else if (rel.isRbtset()) {
         res << "Rbtset,";
@@ -187,7 +189,6 @@ std::string getRelationType(const RamRelation& rel, std::size_t arity, const Ind
         }
     }
 
-    bool predicated = Global::config().has("predicated");
     res << (predicated ? (arity + 2) : arity);
     
     if (!useNoIndex()) {
@@ -1669,10 +1670,10 @@ void Synthesiser::generateCode(
 
         // ensure that the type of the new knowledge is the same as that of the delta knowledge
         tempType = (rel.isTemp() && raw_name.find("@delta") != std::string::npos)
-                           ? getRelationType(rel, arity, idxAnalysis->getIndexes(rel))
+                           ? getRelationType(rel, arity, idxAnalysis->getIndexes(rel), predicated)
                            : tempType;
         const std::string& type = (rel.isTemp()) ? tempType : getRelationType(rel, arity,
-                                                                      idxAnalysis->getIndexes(rel));
+                                                                      idxAnalysis->getIndexes(rel), predicated);
 
         // defining table
         os << "// -- Table: " << raw_name << "\n";

@@ -1782,11 +1782,11 @@ public:
         // the iterator core of this level
         typedef IterCore<0> iter_core_t;
 
-        // the wrapped iterator
-        iter_core_t iter_core;
-
         // the value currently pointed to
         entry_type value;
+
+        // the wrapped iterator
+        iter_core_t iter_core;
 
     public:
         // default constructor -- creating an end-iterator
