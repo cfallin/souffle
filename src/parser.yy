@@ -174,7 +174,6 @@
 %token ATANH                     "atanh"
 %token LOG                       "log"
 %token EXP                       "exp"
-%token MINCOUNT                  "mincount"
 %token FORALL                    "forall"
 
 %type <uint32_t>                         qualifiers
