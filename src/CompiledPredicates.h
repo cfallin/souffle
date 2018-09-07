@@ -195,7 +195,7 @@ struct PredHelperForall {
 	    BDDValue val = it->second;
 	    BDDValue valOrNotDom = bdd.make_or(val, bdd.make_not(dom));
 	    ret = bdd.make_and(ret, valOrNotDom);
-	    if (ret == BDD::FALSE) {
+	    if (ret == BDD::FALSE()) {
 		break;
 	    }
 	}
