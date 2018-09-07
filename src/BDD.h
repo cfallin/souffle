@@ -50,6 +50,18 @@ public:
 	os << "BDDValue(" << v.val << ")";
 	return os;
     }
+
+    BDDValue atomic_get() const {
+	std::atomic<uint64_t>* at = reinterpret_cast<std::atomic<uint64_t>*>(
+	    const_cast<uint64_t*>(&val));
+	return BDDValue(at->load(std::memory_order_acquire));
+    }
+
+    bool atomic_cas(BDDValue oldVal, BDDValue newVal) const {
+	std::atomic<uint64_t>* at = reinterpret_cast<std::atomic<uint64_t>*>(
+	    const_cast<uint64_t*>(&val));
+	return at->compare_exchange_weak(oldVal.val, newVal.val, std::memory_order_release);
+    }
 };
 class BDDVar {
     friend class BDD;

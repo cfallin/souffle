@@ -221,14 +221,9 @@ namespace detail {
 template <unsigned arity, typename Derived>
 struct RelationBase {
     BDDValue zero_arity_rel_pred;
-    std::mutex pred_insert_lock;
 
     // the type of tuple maintained by this relation
     typedef Tuple<RamDomain, arity> tuple_type;
-
-    std::mutex& predInsertLock() {
-	return pred_insert_lock;
-    }
 
     // -- contains wrapper --
 

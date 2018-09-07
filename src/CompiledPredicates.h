@@ -89,6 +89,7 @@ template <typename rel_type, typename tuple_type>
 static void predHelperInsert(BDD& bdd, rel_type* rel, const tuple_type& tuple) {
     enum { arity = tuple_type::arity - 2 };
 
+#if 0
     std::lock_guard<std::mutex> guard(rel->predInsertLock());
 
     if (arity == 0) {
@@ -115,6 +116,21 @@ static void predHelperInsert(BDD& bdd, rel_type* rel, const tuple_type& tuple) {
 			    BDDValue::from_domain(tuple[arity])).as_domain();
         }
     }
+#else
+    if (arity == 0) {
+	const BDDValue& relPred = rel->getZeroArityRelPred();
+	BDDValue o, n;
+	do {
+	    BDDValue pred = BDDValue::from_domain(tuple[arity]);
+	    BDDVar var = BDDVar::from_domain(tuple[arity + 1]);
+	    BDDValue thisPred = var != BDD::NO_VAR() ? bdd.make_and(pred, bdd.make_var(var)) : pred;
+	    o = relPred.atomic_get();
+	    n = bdd.make_or(o, thisPred);
+	} while (!relPred.atomic_cas(o, n));
+    } else {
+	rel->insert(tuple);
+    }
+#endif
 }
 
 template<unsigned arity, unsigned... keycols>
