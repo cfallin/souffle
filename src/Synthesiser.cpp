@@ -160,9 +160,7 @@ std::string getRelationType(const RamRelation& rel, std::size_t arity, const Ind
     res << "ram::Relation";
     res << "<";
 
-    if (predicated) {
-        res << "BTree,";
-    } else if (rel.isBTree()) {
+    if (rel.isBTree()) {
         res << "BTree,";
     } else if (rel.isRbtset()) {
         res << "Rbtset,";
