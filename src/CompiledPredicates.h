@@ -89,6 +89,8 @@ template <typename rel_type, typename tuple_type>
 static void predHelperInsert(BDD& bdd, rel_type* rel, const tuple_type& tuple) {
     enum { arity = tuple_type::arity - 2 };
 
+    std::lock_guard<std::mutex> guard(rel->predInsertLock());
+
     if (arity == 0) {
 	BDDValue& relPred = rel->getZeroArityRelPred();
 	BDDValue pred = BDDValue::from_domain(tuple[arity]);
