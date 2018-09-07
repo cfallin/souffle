@@ -37,6 +37,9 @@ static BDDValue predHelperRangeEmpty(BDD& bdd, const Range& range, BDDValue pare
         BDDValue this_pred = predHelperTuple(bdd, parent_pred, tuple);
         BDDValue not_present = bdd.make_not(this_pred);
         ret = bdd.make_and(ret, not_present);
+	if (ret == BDD::FALSE()) {
+	    break;
+	}
     }
     return sf.ret(ret);
 }
@@ -57,6 +60,9 @@ static BDDValue predHelperEmpty(BDD& bdd, const Relation& relation, BDDValue par
         BDDValue this_pred = predHelperTuple(bdd, parent_pred, tuple);
         BDDValue not_present = bdd.make_not(this_pred);
         ret = bdd.make_and(ret, not_present);
+	if (ret == BDD::FALSE()) {
+	    break;
+	}
     }
     return sf.ret(ret);
 }
@@ -80,6 +86,9 @@ static BDDValue predHelperNotExists(
         for (const auto& t : range) {
             BDDValue pred = predHelperTuple(bdd, BDD::TRUE(), t);
 	    not_exists = bdd.make_and(not_exists, bdd.make_and(parent_pred, bdd.make_not(pred)));
+	    if (not_exists == BDD::FALSE()) {
+		break;
+	    }
         }
         return sf.ret(not_exists);
     }
@@ -186,6 +195,9 @@ struct PredHelperForall {
 	    BDDValue val = it->second;
 	    BDDValue valOrNotDom = bdd.make_or(val, bdd.make_not(dom));
 	    ret = bdd.make_and(ret, valOrNotDom);
+	    if (ret == BDD::FALSE) {
+		break;
+	    }
 	}
 	return sf.ret(ret);
     }
