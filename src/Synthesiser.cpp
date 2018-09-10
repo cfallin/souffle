@@ -899,7 +899,7 @@ public:
 
 	// Step 1: insert into forallValsByKey.
 	if (predicated) {
-	    out << "env" << level << "[" << arity << "] = pred;\n";
+	    out << "env" << level << "[" << arity << "] = pred.as_domain();\n";
 	    out << "predHelperInsert(bdd, &forallValsByKey, env" << level << ");\n";
 	} else {
 	    out << "forallValsByKey.insert(env" << level << ");\n";
@@ -1798,13 +1798,13 @@ void Synthesiser::generateCode(
     os << "for (RamDomain* record: r_it->second) {\n";
     os << "switch(r_it->first) {";
     for (int arity: recArities) {
-	os << "case " << arity << ": \n";
+	os << "case " << arity << ": {\n";
 	os << getTupleType(arity) << " tuple" << arity << ";\n";
 	for (int i = 0; i < arity; ++i) {
 	    os << "tuple" << arity << "["<< i << "] = record[" << i << "];\n";
 	}
 	os << "pack<" << getTupleType(arity) << ">(tuple" << arity << ");\n";
-	os << "break;\n";
+	os << "break;\n}\n";
     }
     os << "default: break; \n";
     os << "}\n";
