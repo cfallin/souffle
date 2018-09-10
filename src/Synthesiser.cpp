@@ -839,6 +839,7 @@ public:
 	    arity += 2;
 	}
 	out << "ram::Relation<Auto, " << arity << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
+	out << "CREATE_OP_CONTEXT(forallValsByKeyOpCtxt, forallValsByKey.createContext());\n";
 
 	if (predicated) {
 	    out << "PredHelperForall<" << fctx.getArity() << ", " << join(keyColList, ", ") << "> forallContext(bdd);\n";
@@ -900,15 +901,15 @@ public:
 	// Step 1: insert into forallValsByKey.
 	if (predicated) {
 	    out << "env" << level << "[" << arity << "] = pred.as_domain();\n";
-	    out << "predHelperInsert(bdd, &forallValsByKey, env" << level << ");\n";
+	    out << "predHelperInsert(bdd, &forallValsByKey, env" << level << ", READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
 	} else {
-	    out << "forallValsByKey.insert(env" << level << ");\n";
+	    out << "forallValsByKey.insert(env" << level << ", READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
 	}
 
 	if (predicated) {
 	    // Predicated case: invoke the helper to compute the forall result for
 	    // this one key.
-	    out << "BDDValue new_pred = forallContext.computeOneKey(*" << relName << ", forallValsByKey, env" << level << ");\n";
+	    out << "BDDValue new_pred = forallContext.computeOneKey(*" << relName << ", forallValsByKey, env" << level << ", " << ctxName << ", READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
 	    out << "if (new_pred != BDD::FALSE()) {\n";
 	    out << "BDDValue pred = new_pred;\n";
 	    visit(*forall.getNested(), out);
@@ -919,7 +920,7 @@ public:
 	    // Step 2: probe the values-by-key relation and get the count
 	    // for this key.
 	    out << "auto valRange = forallValsByKey.equalRange<" << keyRange << ">(" <<
-		"forallKey);\n";
+		"forallKey, READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
 	    out << "size_t valCount = 0;\n";
 	    out << "for (const auto& t : valRange) { valCount++; }\n";
 
@@ -1127,7 +1128,9 @@ public:
             auto relFilter = getRelationName(project.getFilter());
             auto ctxFilter = "READ_OP_CONTEXT(" + getOpContextName(project.getFilter()) + ")";
 	    if (predicated) {
-		out << "if (!predicatedContains(tuple, " << relFilter << ")) {\n";
+		out << "BDDValue new_pred = predHelperContains(bdd, " << relFilter << ", tuple, " << ", pred, " << ctxFilter << ")) {\n";
+		out << "if (new_pred != BDD::FALSE()) {\n";
+		out << "BDDValue pred = new_pred;\n";
 	    } else {
 		out << "if (!" << relFilter << ".contains(tuple," << ctxFilter << ")) {\n";
 	    }
@@ -1135,7 +1138,7 @@ public:
 
         // insert tuple
 	if (predicated) {
-	    out << "predHelperInsert(bdd, " << relName << ", tuple);\n";
+	    out << "predHelperInsert(bdd, " << relName << ", tuple, " << ctxName << ");\n";
 	} else {
 	    if (Global::config().has("profile")) {
 		out << "if (!(" << relName << "->"
@@ -1272,7 +1275,7 @@ public:
 	    if (predicated) {
 		out << "predHelperNotExists(bdd, *" << relName
 		    << ", Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec)
-		    << "}), pred)";
+		    << "}), pred, " << ctxName << ")";
 	    } else {
 		out << "!" << relName << "->"
 		    << "contains(Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec) << "}),"

@@ -10,8 +10,9 @@ namespace souffle {
 
 template <typename rel_type1, typename rel_type2>
 static void predHelperMergeWithPredicates(BDD& bdd, rel_type1* to, rel_type2* from) {
+    auto ctxt = to->createContext();
     for (const auto& tuple : *from) {
-        predHelperInsert(bdd, to, tuple);
+        predHelperInsert(bdd, to, tuple, ctxt);
     }
 }
 
@@ -62,12 +63,13 @@ static BDDValue predHelperEmpty(BDD& bdd, const Relation& relation, BDDValue par
     return sf.ret(ret);
 }
 
-template <typename rel_type, typename tuple_type>
+template <typename rel_type, typename tuple_type, typename ctxt_type>
 static BDDValue predHelperNotExists(
-        BDD& bdd, const rel_type& rel, const tuple_type& tuple, BDDValue pred) {
+    BDD& bdd, const rel_type& rel, const tuple_type& tuple, BDDValue pred, ctxt_type& ctxt) {
     enum { arity = tuple_type::arity - 2 };
 
-    auto range = rel.template equalRange<typename ram::index_utils::get_full_index<arity>::type>(tuple);
+    auto range = rel.template equalRange<typename ram::index_utils::get_full_index<arity>::type>(
+	tuple, ctxt);
     if (range.begin() == range.end()) {
         return pred;
     } else {
@@ -84,9 +86,15 @@ static BDDValue predHelperNotExists(
     }
 }
 
-template <typename rel_type, typename tuple_type>
-static void predHelperInsert(BDD& bdd, rel_type* rel, const tuple_type& tuple) {
-    rel->insert(tuple);
+template <typename rel_type, typename tuple_type, typename ctxt_type>
+static BDDValue predHelperContains(
+    BDD& bdd, const rel_type& rel, const tuple_type& tuple, BDDValue pred, ctxt_type& ctxt) {
+    return bdd.make_not(predHelperNotExists(bdd, rel, tuple, pred, ctxt));
+}
+
+template <typename rel_type, typename tuple_type, typename ctxt_type>
+static void predHelperInsert(BDD& bdd, rel_type* rel, const tuple_type& tuple, ctxt_type& ctxt) {
+    rel->insert(tuple, ctxt);
 }
 
 template<unsigned arity, unsigned... keycols>
@@ -115,12 +123,16 @@ struct PredHelperForall {
 	}
     };
 
-    template<typename TupleType, typename DomRel, typename ValRel>
+    template<typename TupleType,
+	     typename DomRel, typename ValRel,
+	     typename DomOpCtxt, typename ValOpCtxt>
     BDDValue computeOneKey(const DomRel& domain,
 			   const ValRel& values,
-			   const TupleType& key) {
-	auto domRange = domain.template equalRange<keycols...>(key);
-	auto valRange = values.template equalRange<keycols...>(key);
+			   const TupleType& key,
+			   DomOpCtxt& dom_op_ctxt,
+			   ValOpCtxt& val_op_ctxt) {
+	auto domRange = domain.template equalRange<keycols...>(key, dom_op_ctxt);
+	auto valRange = values.template equalRange<keycols...>(key, val_op_ctxt);
 
 	std::unordered_map<const RamDomain*, BDDValue, Hasher, Equal> valPreds;
 
