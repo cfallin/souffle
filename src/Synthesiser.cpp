@@ -350,12 +350,9 @@ public:
         visitDepthFirst(insert, [&](const RamScan& scan) { input_relations.insert(scan.getRelation()); });
         if (!input_relations.empty()) {
             out << "if (" << join(input_relations, "&&", [&](std::ostream& out, const RamRelation& rel) {
-		    if (rel.getArity() == 0 && predicated) {
-			out << getRelationName(rel) << "->getZeroArityRelPred() != BDD::FALSE()";
-		    } else {
-			out << "!" << getRelationName(rel) << "->"
-			    << "empty()";
-		    }
+		    out << "!" << getRelationName(rel) << "->"
+			<< "empty()";
+
             }) << ") ";
         }
 
@@ -574,8 +571,29 @@ public:
         PRINT_END_COMMENT(out);
     }
 
+    // For differential debugging (useful for "big features",
+    // e.g. predication): print the sizes of relations in each
+    // iteration of a corecursive loop of rules, in order to compare
+    // two or more runs.
+    void printDebugSize(const RamCondition& cond, std::ostream& out) {
+	if (const RamAnd* a = dynamic_cast<const RamAnd*>(&cond)) {
+	    printDebugSize(a->getLHS(), out);
+	    printDebugSize(a->getRHS(), out);
+	} else if (const RamEmpty* e = dynamic_cast<const RamEmpty*>(&cond)) {
+	    out << "std::cout << \"size(" << getRelationName(e->getRelation()) << ") = \" << "
+		<< getRelationName(e->getRelation()) << "->size() << \"\\n\";\n";
+	}
+    }
+
+    void printDebugSizes(const RamExit& exit, std::ostream& out) {
+	out << "std::cout << \"---- loop exit condition: ----\\n\";\n";
+	printDebugSize(exit.getCondition(), out);
+	out << "std::cout << \"---- end loop exit condition ----\\n\";\n";
+    }
+
     void visitExit(const RamExit& exit, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
+	//printDebugSizes(exit, out);
 	if (predicated) {
 	    out << "if(" << print(exit.getCondition()) << " == BDD::TRUE()) break;\n";
 	} else {
