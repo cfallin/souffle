@@ -1182,63 +1182,59 @@ public:
 
     void visitBinaryRelation(const RamBinaryRelation& rel, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
-	std::string suffix = "";
-	if (predicated) {
-	    suffix = " ? BDD::TRUE() : BDD::FALSE()";
-	}
 
 	switch (rel.getOperator()) {
 	    // comparison operators
 	case BinaryConstraintOp::EQ:
-	    out << "(((" << print(rel.getLHS()) << ") == (" << print(rel.getRHS()) << "))" << suffix << ")";
+	    out << "((" << print(rel.getLHS()) << ") == (" << print(rel.getRHS()) << "))";
 	    break;
 	case BinaryConstraintOp::NE:
-	    out << "(((" << print(rel.getLHS()) << ") != (" << print(rel.getRHS()) << "))" << suffix << ")";
+	    out << "((" << print(rel.getLHS()) << ") != (" << print(rel.getRHS()) << "))";
 	    break;
 	case BinaryConstraintOp::LT:
-	    out << "(((" << print(rel.getLHS()) << ") < (" << print(rel.getRHS()) << "))" << suffix << ")";
+	    out << "((" << print(rel.getLHS()) << ") < (" << print(rel.getRHS()) << "))";
 	    break;
 	case BinaryConstraintOp::LE:
-	    out << "(((" << print(rel.getLHS()) << ") <= (" << print(rel.getRHS()) << "))" << suffix << ")";
+	    out << "((" << print(rel.getLHS()) << ") <= (" << print(rel.getRHS()) << "))";
 	    break;
 	case BinaryConstraintOp::GT:
-	    out << "(((" << print(rel.getLHS()) << ") > (" << print(rel.getRHS()) << "))" << suffix << ")";
+	    out << "((" << print(rel.getLHS()) << ") > (" << print(rel.getRHS()) << "))";
 	    break;
 	case BinaryConstraintOp::GE:
-	    out << "(((" << print(rel.getLHS()) << ") >= (" << print(rel.getRHS()) << "))" << suffix << ")";
+	    out << "((" << print(rel.getLHS()) << ") >= (" << print(rel.getRHS()) << "))";
 	    break;
 
 	    // strings
 	case BinaryConstraintOp::MATCH: {
-	    out << "(regex_wrapper(symTable.resolve((size_t)";
+	    out << "regex_wrapper(symTable.resolve((size_t)";
 	    out << print(rel.getLHS());
 	    out << "),symTable.resolve((size_t)";
 	    out << print(rel.getRHS());
-	    out << "))" << suffix << ")";
+	    out << "))";
 	    break;
 	}
 	case BinaryConstraintOp::NOT_MATCH: {
-	    out << "(!regex_wrapper(symTable.resolve((size_t)";
+	    out << "!regex_wrapper(symTable.resolve((size_t)";
 	    out << print(rel.getLHS());
 	    out << "),symTable.resolve((size_t)";
 	    out << print(rel.getRHS());
-	    out << "))" << suffix << ")";
+	    out << "))";
 	    break;
 	}
 	case BinaryConstraintOp::CONTAINS: {
-	    out << "((std::string(symTable.resolve((size_t)";
+	    out << "(std::string(symTable.resolve((size_t)";
 	    out << print(rel.getRHS());
 	    out << ")).find(symTable.resolve((size_t)";
 	    out << print(rel.getLHS());
-	    out << "))!=std::string::npos)" << suffix << ")";
+	    out << "))!=std::string::npos)";
 	    break;
 	}
 	case BinaryConstraintOp::NOT_CONTAINS: {
-	    out << "((std::string(symTable.resolve((size_t)";
+	    out << "(std::string(symTable.resolve((size_t)";
 	    out << print(rel.getRHS());
 	    out << ")).find(symTable.resolve((size_t)";
 	    out << print(rel.getLHS());
-	    out << "))==std::string::npos)" << suffix << ")";
+	    out << "))==std::string::npos)";
 	    break;
 	}
 	default:

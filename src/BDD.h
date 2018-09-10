@@ -35,10 +35,11 @@ class BDDValue {
     
     uint64_t val;
 
-    BDDValue(uint64_t v) : val(v) {}
+    static BDDValue make(uint64_t v) { BDDValue ret; ret.val = v; return ret; }
 public:
     BDDValue() : val(0) {}
-    static BDDValue from_domain(RamDomain d) { return BDDValue(static_cast<uint64_t>(d)); }
+    BDDValue(bool b);
+    static BDDValue from_domain(RamDomain d) { return make(static_cast<uint64_t>(d)); }
     RamDomain as_domain() const { return static_cast<RamDomain>(val); }
     bool operator==(const BDDValue& other) const { return val == other.val; }
     bool operator!=(const BDDValue& other) const { return val != other.val; }
@@ -54,7 +55,7 @@ public:
     BDDValue atomic_get() const {
 	std::atomic<uint64_t>* at = reinterpret_cast<std::atomic<uint64_t>*>(
 	    const_cast<uint64_t*>(&val));
-	return BDDValue(at->load(std::memory_order_acquire));
+	return make(at->load(std::memory_order_acquire));
     }
 
     bool atomic_cas(BDDValue oldVal, BDDValue newVal) const {
@@ -68,10 +69,10 @@ class BDDVar {
     
     uint64_t val;
 
-    BDDVar(uint64_t v) : val(v) {}
+    static BDDVar make(uint64_t v) { BDDVar ret; ret.val = v; return ret; }
 public:
     BDDVar() : val(0) {}
-    static BDDVar from_domain(RamDomain d) { return BDDVar(static_cast<uint64_t>(d)); }
+    static BDDVar from_domain(RamDomain d) { return make(static_cast<uint64_t>(d)); }
     RamDomain as_domain() const { return static_cast<RamDomain>(val); }
     bool operator==(const BDDVar& other) const { return val == other.val; }
     bool operator!=(const BDDVar& other) const { return val != other.val; }
@@ -87,9 +88,9 @@ public:
 
 class BDD {
 public:
-    static BDDValue FALSE() { return BDDValue(0); }
-    static BDDValue TRUE() { return BDDValue(1); }
-    static BDDVar NO_VAR() { return BDDVar(0); }
+    static BDDValue FALSE() { return BDDValue::make(0); }
+    static BDDValue TRUE() { return BDDValue::make(1); }
+    static BDDVar NO_VAR() { return BDDVar::make(0); }
 
     struct SubFrame {
         BDD& bdd;
@@ -144,7 +145,7 @@ private:
         }
     };
 
-    static BDDVar MAX_VAR() { return BDDVar(UINT64_MAX); }
+    static BDDVar MAX_VAR() { return BDDVar::make(UINT64_MAX); }
 
     std::recursive_mutex lock_;
     std::vector<Node> nodes_;
@@ -164,7 +165,7 @@ private:
 	if (it != nodes_reverse_.end()) {
 	    return it->second;
 	} else {
-	    BDDValue val = BDDValue(nodes_.size());
+	    BDDValue val = BDDValue::make(nodes_.size());
 	    nodes_.push_back(n);
 	    nodes_reverse_.insert(it, std::make_pair(n, val));
 	    return val;
@@ -246,19 +247,40 @@ public:
 	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return ite(a, FALSE(), TRUE());
     }
+    BDDValue make_not(bool b) {
+	return make_not(BDDValue(b));
+    }
 
     BDDValue make_and(BDDValue a, BDDValue b) {
 	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return ite(a, b, FALSE());
+    }
+    BDDValue make_and(bool a, bool b) {
+	return make_and(BDDValue(a), BDDValue(b));
+    }
+    BDDValue make_and(BDDValue a, bool b) {
+	return make_and(a, BDDValue(b));
+    }
+    BDDValue make_and(bool a, BDDValue b) {
+	return make_and(BDDValue(a), b);
     }
 
     BDDValue make_or(BDDValue a, BDDValue b) {
 	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return ite(a, TRUE(), b);
     }
+    BDDValue make_or(bool a, bool b) {
+	return make_or(BDDValue(a), BDDValue(b));
+    }
+    BDDValue make_or(BDDValue a, bool b) {
+	return make_or(a, BDDValue(b));
+    }
+    BDDValue make_or(bool a, BDDValue b) {
+	return make_or(BDDValue(a), b);
+    }
 
     BDDVar alloc_var() {
-	return BDDVar(next_var_.fetch_add(1));
+	return BDDVar::make(next_var_.fetch_add(1));
     }
 
     void writeFile(const std::string& nodeFilename) {
@@ -273,24 +295,51 @@ public:
 	}
     }
 
-    BDDValue make_ge(RamDomain a, RamDomain b) const {
-	return (a >= b) ? BDD::TRUE() : BDD::FALSE();
+    bool make_ge(RamDomain a, RamDomain b) {
+	return (a >= b);
     }
-    BDDValue make_gt(RamDomain a, RamDomain b) const {
-	return (a > b) ? BDD::TRUE() : BDD::FALSE();
+    bool make_gt(RamDomain a, RamDomain b) {
+	return (a > b);
     }
-    BDDValue make_le(RamDomain a, RamDomain b) const {
-	return (a <= b) ? BDD::TRUE() : BDD::FALSE();
+    bool make_le(RamDomain a, RamDomain b) {
+	return (a <= b);
     }
-    BDDValue make_lt(RamDomain a, RamDomain b) const {
-	return (a < b) ? BDD::TRUE() : BDD::FALSE();
+    bool make_lt(RamDomain a, RamDomain b) {
+	return (a < b);
     }
-    BDDValue make_eq(RamDomain a, RamDomain b) const {
-	return (a == b) ? BDD::TRUE() : BDD::FALSE();
+    bool make_eq(RamDomain a, RamDomain b) {
+	return (a == b);
     }
-    BDDValue make_ne(RamDomain a, RamDomain b) const {
-	return (a != b) ? BDD::TRUE() : BDD::FALSE();
+    bool make_ne(RamDomain a, RamDomain b) {
+	return (a != b);
+    }
+
+    BDDValue make_eq(BDDValue a, BDDValue b) {
+	return make_or(make_and(a, b), make_and(make_not(a), make_not(b)));
+    }
+    BDDValue make_eq(bool a, bool b) {
+	return make_eq(BDDValue(a), BDDValue(b));
+    }
+    BDDValue make_eq(BDDValue a, bool b) {
+	return make_eq(a, BDDValue(b));
+    }
+    BDDValue make_eq(bool a, BDDValue b) {
+	return make_eq(BDDValue(a), b);
+    }
+    BDDValue make_ne(BDDValue a, BDDValue b) {
+	return make_or(make_and(a, make_not(b)), make_and(make_not(a), b));
+    }
+    BDDValue make_ne(bool a, bool b) {
+	return make_ne(BDDValue(a), BDDValue(b));
+    }
+    BDDValue make_ne(BDDValue a, bool b) {
+	return make_ne(a, BDDValue(b));
+    }
+    BDDValue make_ne(bool a, BDDValue b) {
+	return make_ne(BDDValue(a), b);
     }
 };
+
+inline BDDValue::BDDValue(bool b) : val(b ? BDD::TRUE().val : BDD::FALSE().val) {}
 
 }  // namespace souffle
