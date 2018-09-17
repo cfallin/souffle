@@ -62,80 +62,19 @@ public:
 
     // - Per-key (forall-instance) state:
     //
-    // When predicates are enabled:
-    // - we store maps of value columns to:
-    //   - domain predicate
-    //   - value predicate
-    //   - current BDD value: !domain OR value
-    struct ForallStatePredPerValue {
-	BDDValue domain;
-	BDDValue value;
-	BDDValue domImpliesValue;
-
-	ForallStatePredPerValue() : domain(BDD::FALSE()), value(BDD::FALSE()), domImpliesValue(BDD::FALSE()) {}
-
-	void addDom(BDD& bdd, BDDValue pred) {
-	    domain = bdd.make_or(domain, pred);
-	    domImpliesValue = bdd.make_or(bdd.make_not(domain), value);
-	}
-	void addVal(BDD& bdd, BDDValue pred) {
-	    value = bdd.make_or(value, pred);
-	    domImpliesValue = bdd.make_or(domImpliesValue, pred);
-	}
-    };
-    struct ForallStatePred {
-	bool init;
-	std::map<std::vector<RamDomain>, ForallStatePredPerValue> values;
-
-	ForallStatePred() : init(false) {}
-
-	ForallStatePredPerValue& lookup(const std::vector<RamDomain>& tuple) {
-	    auto it = values.find(tuple);
-	    if (it == values.end()) {
-		it = values.insert(it, std::make_pair(tuple, ForallStatePredPerValue()));
-	    }
-	    return it->second;
-	}
-
-	void addDom(BDD& bdd, const std::vector<RamDomain>& tuple, BDDValue pred, BDDVar predVar) {
-	    if (predVar != BDD::NO_VAR()) {
-		pred = bdd.make_and(pred, bdd.make_var(predVar));
-	    }
-	    
-	    lookup(tuple).addDom(bdd, pred);
-	}
-	void addVal(BDD& bdd, const std::vector<RamDomain>& tuple, BDDValue pred, BDDVar predVar) {
-	    if (predVar != BDD::NO_VAR()) {
-		pred = bdd.make_and(pred, bdd.make_var(predVar));
-	    }
-	    
-	    lookup(tuple).addVal(bdd, pred);
-	}
-	
-	BDDValue getOutput(BDD& bdd) const {
-	    BDDValue ret = BDD::TRUE();
-	    for (const auto& p : values) {
-		const auto& perVal = p.second;
-		ret = bdd.make_and(ret, perVal.domImpliesValue);
-	    }
-	    return ret;
-	}
-    };
-
     // When predicates are not enabled: simply store sets of tuples
     // for domain and value inputs, and when counts are equal, the
     // forall is satisfied.
-    struct ForallStateNoPred {
+    struct ForallState {
 	bool init;
 	std::set<std::vector<RamDomain>> domVals;
 	std::set<std::vector<RamDomain>> seenVals;
 
-	ForallStateNoPred() : init(false) {}
+	ForallState() : init(false) {}
     };
 
 private:
-    std::map<std::vector<RamDomain>, ForallStatePred> forallStatePred;
-    std::map<std::vector<RamDomain>, ForallStateNoPred> forallStateNoPred;
+    std::map<std::vector<RamDomain>, ForallState> forallState;
 
 
 public:
@@ -190,21 +129,11 @@ public:
     }
 
 
-    ForallStatePred& getForallStatePred(std::vector<RamDomain> key) {
-	auto it = forallStatePred.find(key);
-	if (it == forallStatePred.end()) {
-	    ForallStatePred newState;
-	    return forallStatePred.insert(
-		it, std::make_pair(std::move(key), newState))->second;
-	} else {
-	    return it->second;
-	}
-    }
-    ForallStateNoPred& getForallStateNoPred(std::vector<RamDomain> key) {
-	auto it = forallStateNoPred.find(key);
-	if (it == forallStateNoPred.end()) {
-	    ForallStateNoPred newState;
-	    return forallStateNoPred.insert(
+    ForallState& getForallState(std::vector<RamDomain> key) {
+	auto it = forallState.find(key);
+	if (it == forallState.end()) {
+	    ForallState newState;
+	    return forallState.insert(
 		it, std::make_pair(std::move(key), newState))->second;
 	} else {
 	    return it->second;
@@ -721,15 +650,11 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
         }
 
 	void visitForall(const RamForall& forall) override {
-	    if (env.getEnableHypotheses()) {
-		visitForallPred(forall);
-	    } else {
-		visitForallNoPred(forall);
-	    }
-	}
-
-	void visitForallNoPred(const RamForall& forall) {
 	    size_t arity = forall.getArgs().size();
+
+	    if (ctxt.pred(forall.getLevel()) != BDD::TRUE()) {
+		return;
+	    }
 
 	    // construct the tuple
             const auto& args = forall.getArgs();
@@ -750,7 +675,7 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 	    }
 
 	    // get the state for this forall instance
-	    auto& state = ctxt.getForallStateNoPred(low);
+	    auto& state = ctxt.getForallState(low);
 
 	    // initialize the state if needed (count domain vals)
 	    if (!state.init) {
@@ -785,69 +710,6 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
 			visit(forall.getNested());
 		    }
 		}
-	    }
-	}
-
-	void visitForallPred(const RamForall& forall) {
-	    size_t arity = forall.getArgs().size();
-
-	    // construct the tuple
-            const auto& args = forall.getArgs();
-	    std::vector<RamDomain> tuple;
-            for (size_t i = 0; i < arity; i++) {
-                tuple.push_back(eval(args[i], env, ctxt));
-            }
-
-	    // construct the key and val from the tuple
-	    std::vector<RamDomain> low;
-	    std::vector<RamDomain> high;
-	    SearchColumns valCols = forall.getDomVarColumns();
-	    SearchColumns keyCols = ((1L << arity) - 1) ^ valCols;
-	    for (size_t i = 0; i < arity; i++) {
-		bool isVal = valCols & (1L << i);
-		low.push_back(isVal ? MIN_RAM_DOMAIN : tuple[i]);
-		high.push_back(isVal ? MAX_RAM_DOMAIN : tuple[i]);
-	    }
-
-	    // get the state for this forall instance
-	    auto& state = ctxt.getForallStatePred(low);
-
-	    // initialize the state if needed (count domain vals)
-	    if (!state.init) {
-		// get the domain relation
-		const InterpreterRelation& domRel = env.getRelation(*forall.getDomRelation());
-
-		if (!keyCols) {
-		    for (auto t : domRel) {
-			std::vector<RamDomain> domVal(t, t + arity);
-			state.addDom(bdd,
-				     domVal,
-				     BDDValue::from_domain(t[arity]),
-				     BDDVar::from_domain(t[arity + 1]));
-		    }
-		} else {
-		    auto* index = domRel.getIndex(keyCols);
-		    auto p = index->lowerUpperBound(low.data(), high.data());
-		    for (auto i = p.first; i != p.second; ++i) {
-			const RamDomain* t = *i;
-			std::vector<RamDomain> domVal(t, t + arity);
-			state.addDom(bdd,
-				     domVal,
-				     BDDValue::from_domain(t[arity]),
-				     BDDVar::from_domain(t[arity + 1]));
-		    }
-		}
-		state.init = true;
-	    }
-
-	    // add the value
-	    BDDValue pred = ctxt.pred(forall.getLevel());
-	    state.addVal(bdd, tuple, pred, BDD::NO_VAR());
-
-	    BDDValue out = state.getOutput(bdd);
-	    if (out != BDD::FALSE()) {
-		ctxt.pred(forall.getLevel() + 1) = out;
-		visit(forall.getNested());
 	    }
 	}
 

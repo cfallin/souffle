@@ -840,10 +840,6 @@ public:
 	}
 	out << "ram::Relation<Auto, " << arity << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
 	out << "CREATE_OP_CONTEXT(forallValsByKeyOpCtxt, forallValsByKey.createContext());\n";
-
-	if (predicated) {
-	    out << "PredHelperForall<" << fctx.getArity() << ", " << join(keyColList, ", ") << "> forallContext(bdd);\n";
-	}
 	
 	visit(*fctx.getNested(), out);
 
@@ -868,7 +864,6 @@ public:
 
 	std::string keyRange;
 	std::string keyVals;
-	std::string valueVals;
 	size_t keyArity = 0;
 	bool first = true;
 	for (size_t col = 0; col < arity; col++) {
@@ -882,63 +877,40 @@ public:
 		keyVals += "env" + toString(level) + "[" + toString(col) + "], ";
 		keyArity++;
 	    } else {
-		if (!predicated) {
-		    keyVals += "0, ";
-		}
-		valueVals += "env" + toString(level) + "[" + toString(col) + "], ";
+		keyVals += "0, ";
 	    }
 	}
 
-	std::string key_tuple_type = predicated ? getTupleType(keyArity) : tuple_type;
-	out << key_tuple_type << " forallKey({" << keyVals << "});\n";
+	out << tuple_type << " forallKey({" << keyVals << "});\n";
 
 	// Step 0: probe the domain relation by the specific tuple to
 	// see if this tuple is in the domain. Skip the rest if not.
-	if (!predicated) {
-	    out << "if (" << relName << "->contains(env" << level << ")) {\n";
-	}
+	out << "if (" << relName << "->contains(env" << level << ")) {\n";
 
 	// Step 1: insert into forallValsByKey.
-	if (predicated) {
-	    out << "env" << level << "[" << arity << "] = pred.as_domain();\n";
-	    out << "predHelperInsert(bdd, &forallValsByKey, env" << level << ", READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
-	} else {
-	    out << "forallValsByKey.insert(env" << level << ", READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
-	}
+	out << "forallValsByKey.insert(env" << level << ", READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
 
-	if (predicated) {
-	    // Predicated case: invoke the helper to compute the forall result for
-	    // this one key.
-	    out << "BDDValue new_pred = forallContext.computeOneKey(*" << relName << ", forallValsByKey, env" << level << ", " << ctxName << ", READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
-	    out << "if (new_pred != BDD::FALSE()) {\n";
-	    out << "BDDValue pred = new_pred;\n";
-	    visit(*forall.getNested(), out);
-	    out << "}\n";
-	} else {
-	    // Non-predicated case:
+	// Step 2: probe the values-by-key relation and get the count
+	// for this key.
+	out << "auto valRange = forallValsByKey.equalRange<" << keyRange << ">(" <<
+	    "forallKey, READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
+	out << "size_t valCount = 0;\n";
+	out << "for (const auto& t : valRange) { valCount++; }\n";
 
-	    // Step 2: probe the values-by-key relation and get the count
-	    // for this key.
-	    out << "auto valRange = forallValsByKey.equalRange<" << keyRange << ">(" <<
-		"forallKey, READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
-	    out << "size_t valCount = 0;\n";
-	    out << "for (const auto& t : valRange) { valCount++; }\n";
+	// Step 3: probe the domain relation and get the count for
+	// this key.
+	out << "auto domRange = " << relName << "->equalRange<" << keyRange << ">(" <<
+	    "forallKey, " << ctxName << ");\n";
+	out << "size_t domCount = 0;\n";
+	out << "for (const auto& t : domRange) { domCount++; if (domCount > valCount) break; }\n";
 
-	    // Step 3: probe the domain relation and get the count for
-	    // this key.
-	    out << "auto domRange = " << relName << "->equalRange<" << keyRange << ">(" <<
-		"forallKey, " << ctxName << ");\n";
-	    out << "size_t domCount = 0;\n";
-	    out << "for (const auto& t : domRange) { domCount++; if (domCount > valCount) break; }\n";
+	// Step 4: if the value count is equal to the domain count,
+	// then execute the nested operation.
+	out << "if (valCount == domCount) {\n";
+	visit(*forall.getNested(), out);
+	out << "}\n";
 
-	    // Step 4: if the value count is equal to the domain count,
-	    // then execute the nested operation.
-	    out << "if (valCount == domCount) {\n";
-	    visit(*forall.getNested(), out);
-	    out << "}\n";
-
-	    out << "}\n";  // close step 0's conditional.
-	}
+	out << "}\n";  // close step 0's conditional.
     }
 
     void visitAggregate(const RamAggregate& aggregate, std::ostream& out) override {
