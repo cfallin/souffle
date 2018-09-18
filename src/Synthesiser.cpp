@@ -840,6 +840,7 @@ public:
 	}
 	out << "ram::Relation<Auto, " << arity << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
 	out << "CREATE_OP_CONTEXT(forallValsByKeyOpCtxt, forallValsByKey.createContext());\n";
+	out << "std::mutex forallValsByKeyLock;\n";
 	
 	visit(*fctx.getNested(), out);
 
@@ -888,6 +889,7 @@ public:
 	out << "if (" << relName << "->contains(env" << level << ")) {\n";
 
 	// Step 1: insert into forallValsByKey.
+	out << "forallValsByKeyLock.lock();\n";
 	out << "forallValsByKey.insert(env" << level << ", READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
 
 	// Step 2: probe the values-by-key relation and get the count
@@ -896,6 +898,7 @@ public:
 	    "forallKey, READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
 	out << "size_t valCount = 0;\n";
 	out << "for (const auto& t : valRange) { valCount++; }\n";
+	out << "forallValsByKeyLock.unlock();\n";
 
 	// Step 3: probe the domain relation and get the count for
 	// this key.

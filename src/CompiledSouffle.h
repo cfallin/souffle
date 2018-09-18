@@ -32,6 +32,7 @@
 #include <iostream>
 #include <map>
 #include <regex>
+#include <mutex>
 
 #if defined(_OPENMP)
 #include <omp.h>
