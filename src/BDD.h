@@ -151,7 +151,6 @@ private:
 	    }
 	    BDDValue val = BDDValue::make(nodes_.emplace_back(n));
 	    nodes_reverse_.insert(it, std::make_pair(n, val));
-	    assert(nodes_[val.val] == n);
 	    lock_.end_write();
 	    return val;
 	}
