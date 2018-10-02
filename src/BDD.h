@@ -123,8 +123,21 @@ private:
 
     static BDDVar MAX_VAR() { return BDDVar::make(UINT64_MAX); }
 
-    BDDNodeVec<Node> nodes_;
-    BDDNodeMap<Node, BDDValue> nodes_reverse_;
+    struct CachedQuery {
+	enum Op { AND, OR, NOT, VAR } op;
+	RamDomain a, b;
+
+	bool operator==(const CachedQuery& other) const {
+	    return op == other.op && a == other.a && b == other.b;
+	}
+	size_t hash() const {
+	    return static_cast<size_t>(op) * 77723 + a * 2851 + b;
+	}
+    };
+
+    BDDVec<Node> nodes_;
+    BDDMap<Node, BDDValue> nodes_reverse_;
+    BDDMap<CachedQuery, BDDValue> cache_;
     std::atomic<uint64_t> next_var_;
 
     static bool not_terminal(BDDValue v) {
@@ -213,18 +226,39 @@ public:
     }
 
     BDDValue make_var(BDDVar var) {
-	return intern(var, TRUE(), FALSE());
+	CachedQuery q { CachedQuery::VAR, var.as_domain(), 0 };
+	auto it = cache_.lookup(q);
+	if (!it.done()) {
+	    return it.value();
+	}
+	BDDValue result = intern(var, TRUE(), FALSE());
+	cache_.insert(std::move(q), BDDValue(result));
+	return result;
     }
 
     BDDValue make_not(BDDValue a) {
-	return ite(a, FALSE(), TRUE());
+	CachedQuery q { CachedQuery::NOT, a.as_domain(), 0 };
+	auto it = cache_.lookup(q);
+	if (!it.done()) {
+	    return it.value();
+	}
+	BDDValue result = ite(a, FALSE(), TRUE());
+	cache_.insert(std::move(q), BDDValue(result));
+	return result;
     }
     BDDValue make_not(bool b) {
 	return make_not(BDDValue(b));
     }
 
     BDDValue make_and(BDDValue a, BDDValue b) {
-	return ite(a, b, FALSE());
+	CachedQuery q { CachedQuery::AND, a.as_domain(), b.as_domain() };
+	auto it = cache_.lookup(q);
+	if (!it.done()) {
+	    return it.value();
+	}
+	BDDValue result = ite(a, b, FALSE());
+	cache_.insert(std::move(q), BDDValue(result));
+	return result;
     }
     BDDValue make_and(bool a, bool b) {
 	return make_and(BDDValue(a), BDDValue(b));
@@ -237,7 +271,14 @@ public:
     }
 
     BDDValue make_or(BDDValue a, BDDValue b) {
-	return ite(a, TRUE(), b);
+	CachedQuery q { CachedQuery::OR, a.as_domain(), b.as_domain() };
+	auto it = cache_.lookup(q);
+	if (!it.done()) {
+	    return it.value();
+	}
+	BDDValue result = ite(a, TRUE(), b);
+	cache_.insert(std::move(q), BDDValue(result));
+	return result;
     }
     BDDValue make_or(bool a, bool b) {
 	return make_or(BDDValue(a), BDDValue(b));

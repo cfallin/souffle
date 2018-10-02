@@ -25,7 +25,7 @@
 
 namespace souffle {
 
-template<typename T> class BDDNodeVec {
+template<typename T> class BDDVec {
 private:
     static constexpr int kBlockShift = 20;
     static constexpr size_t kBlockSize = 1L << kBlockShift;
@@ -67,13 +67,13 @@ private:
     }
 
 public:
-    BDDNodeVec() : size_(0) {
+    BDDVec() : size_(0) {
 	for (int i = 0; i < kBlockCount; i++) {
 	    blocks_[i].store(nullptr);
 	}
     }
 
-    ~BDDNodeVec() {
+    ~BDDVec() {
 	size_t len = size_.load();
 	for (int i = 0; i < kBlockCount; i++) {
 	    Block* b = getBlock(i);
@@ -119,7 +119,7 @@ public:
     }
 };
 
-template<typename K, typename V> class BDDNodeMap {
+template<typename K, typename V> class BDDMap {
 private:
     static constexpr size_t kBucketBits = 14;
     static constexpr size_t kBucketCount = 1L << kBucketBits;
@@ -157,12 +157,12 @@ private:
     }
 
 public:
-    BDDNodeMap() {
+    BDDMap() {
 	for (size_t i = 0; i < kBucketCount; i++) {
 	    buckets_[i].store(nullptr);
 	}
     }
-    ~BDDNodeMap() {
+    ~BDDMap() {
 	for (size_t i = 0; i < kBucketCount; i++) {
 	    HashBucketChunk* b = buckets_[i].load();
 	    while (b) {
