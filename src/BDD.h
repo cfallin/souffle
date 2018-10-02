@@ -27,6 +27,8 @@
 #include <assert.h>
 
 #include "RamTypes.h"
+#include "BDDContainers.h"
+#include "ParallelUtils.h"
 
 namespace souffle {
 
@@ -92,39 +94,11 @@ public:
     static BDDValue TRUE() { return BDDValue::make(1); }
     static BDDVar NO_VAR() { return BDDVar::make(0); }
 
+    // TODO: re-implement pushed subframes
     struct SubFrame {
-        BDD& bdd;
-        std::lock_guard<std::recursive_mutex> guard;
-        size_t node_size;
-        uint64_t next_var;
-	bool canceled;
-
-        SubFrame(BDD& bdd)
-                : bdd(bdd),
-		  guard(bdd.lock_),
-		  node_size(bdd.nodes_.size()),
-		  next_var(bdd.next_var_.load()),
-		  canceled(false) {}
-
-	void cancelRestore() {
-	    canceled = true;
-	}
-
+	SubFrame(BDD&) {}
 	BDDValue ret(BDDValue v) {
-	    if (v != BDD::TRUE() && v != BDD::FALSE()) {
-		cancelRestore();
-	    }
 	    return v;
-	}
-	
-        ~SubFrame() {
-	    if (!canceled) {
-		for (size_t i = node_size; i < bdd.nodes_.size(); i++) {
-		    bdd.nodes_reverse_.erase(bdd.nodes_[i]);
-		}
-		bdd.nodes_.resize(node_size);
-		bdd.next_var_.store(next_var);
-	    }
 	}
     };
 
@@ -147,8 +121,8 @@ private:
 
     static BDDVar MAX_VAR() { return BDDVar::make(UINT64_MAX); }
 
-    std::recursive_mutex lock_;
-    std::vector<Node> nodes_;
+    ReadWriteLock lock_;
+    BDDNodeVec<Node> nodes_;
     std::map<Node, BDDValue> nodes_reverse_;
     std::atomic<uint64_t> next_var_;
 
@@ -161,13 +135,17 @@ private:
 	    return lo;
 	}
 	Node n { var, hi, lo };
+	lock_.start_read();
 	auto it = nodes_reverse_.find(n);
 	if (it != nodes_reverse_.end()) {
-	    return it->second;
+	    BDDValue v = it->second;
+	    lock_.end_read();
+	    return v;
 	} else {
-	    BDDValue val = BDDValue::make(nodes_.size());
-	    nodes_.push_back(n);
+	    lock_.start_write();
+	    BDDValue val = nodes_.emplace_back(n);
 	    nodes_reverse_.insert(it, std::make_pair(n, val));
+	    lock_.end_write();
 	    return val;
 	}
     }
@@ -233,18 +211,16 @@ private:
 public:
     BDD() : next_var_(1) {
 	// false -- placeholder
-	nodes_.push_back(Node());
+	assert(BDDValue(nodes_.emplace_back()) == FALSE());
 	// true -- placeholder
-	nodes_.push_back(Node());
+	assert(BDDValue(nodes_.emplace_back()) == TRUE());
     }
 
     BDDValue make_var(BDDVar var) {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return intern(var, TRUE(), FALSE());
     }
 
     BDDValue make_not(BDDValue a) {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return ite(a, FALSE(), TRUE());
     }
     BDDValue make_not(bool b) {
@@ -252,7 +228,6 @@ public:
     }
 
     BDDValue make_and(BDDValue a, BDDValue b) {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return ite(a, b, FALSE());
     }
     BDDValue make_and(bool a, bool b) {
@@ -266,7 +241,6 @@ public:
     }
 
     BDDValue make_or(BDDValue a, BDDValue b) {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return ite(a, TRUE(), b);
     }
     BDDValue make_or(bool a, bool b) {
@@ -284,15 +258,16 @@ public:
     }
 
     void writeFile(const std::string& nodeFilename) {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 	std::ofstream nodeFile(nodeFilename);
 
 	nodeFile << "0\tFALSE\n" << "1\tTRUE\n";
 
+	lock_.start_read();
 	for (size_t i = 2; i < nodes_.size(); i++) {
 	    const Node& n = nodes_[i];
 	    nodeFile << i << "\t" << n.var.val << "\t" << n.hi.val << "\t" << n.lo.val << "\n";
 	}
+	lock_.end_read();
     }
 
     bool make_ge(RamDomain a, RamDomain b) {
