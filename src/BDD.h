@@ -18,7 +18,6 @@
 
 #include <vector>
 #include <map>
-#include <mutex>
 #include <atomic>
 #include <string>
 #include <iostream>
@@ -117,13 +116,15 @@ private:
             return var < other.var || (var == other.var && hi < other.hi) ||
                    (var == other.var && hi == other.hi && lo < other.lo);
         }
+	size_t hash() const {
+	    return (var.val * 77723 + hi.val * 2851 + lo.val);
+	}
     };
 
     static BDDVar MAX_VAR() { return BDDVar::make(UINT64_MAX); }
 
-    ReadWriteLock lock_;
     BDDNodeVec<Node> nodes_;
-    std::map<Node, BDDValue> nodes_reverse_;
+    BDDNodeMap<Node, BDDValue> nodes_reverse_;
     std::atomic<uint64_t> next_var_;
 
     static bool not_terminal(BDDValue v) {
@@ -135,23 +136,12 @@ private:
 	    return lo;
 	}
 	Node n { var, hi, lo };
-	lock_.start_read();
-	auto it = nodes_reverse_.find(n);
-	if (it != nodes_reverse_.end()) {
-	    BDDValue v = it->second;
-	    lock_.end_read();
-	    return v;
+	auto it = nodes_reverse_.lookup(n);
+	if (!it.done()) {
+	    return it.value();
 	} else {
-	    while (!lock_.try_upgrade_to_write()) {}
-	    it = nodes_reverse_.find(n);
-	    if (it != nodes_reverse_.end()) {
-		BDDValue v = it->second;
-		lock_.end_write();
-		return v;
-	    }
 	    BDDValue val = BDDValue::make(nodes_.emplace_back(n));
-	    nodes_reverse_.insert(it, std::make_pair(n, val));
-	    lock_.end_write();
+	    nodes_reverse_.insert(std::move(n), BDDValue(val));
 	    return val;
 	}
     }
@@ -268,12 +258,10 @@ public:
 
 	nodeFile << "0\tFALSE\n" << "1\tTRUE\n";
 
-	lock_.start_read();
 	for (size_t i = 2; i < nodes_.size(); i++) {
 	    const Node& n = nodes_[i];
 	    nodeFile << i << "\t" << n.var.val << "\t" << n.hi.val << "\t" << n.lo.val << "\n";
 	}
-	lock_.end_read();
     }
 
     bool make_ge(RamDomain a, RamDomain b) {
