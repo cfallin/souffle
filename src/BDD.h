@@ -142,9 +142,16 @@ private:
 	    lock_.end_read();
 	    return v;
 	} else {
-	    lock_.start_write();
-	    BDDValue val = nodes_.emplace_back(n);
+	    while (!lock_.try_upgrade_to_write()) {}
+	    it = nodes_reverse_.find(n);
+	    if (it != nodes_reverse_.end()) {
+		BDDValue v = it->second;
+		lock_.end_write();
+		return v;
+	    }
+	    BDDValue val = BDDValue::make(nodes_.emplace_back(n));
 	    nodes_reverse_.insert(it, std::make_pair(n, val));
+	    assert(nodes_[val.val] == n);
 	    lock_.end_write();
 	    return val;
 	}
@@ -211,9 +218,9 @@ private:
 public:
     BDD() : next_var_(1) {
 	// false -- placeholder
-	assert(BDDValue(nodes_.emplace_back()) == FALSE());
+	assert(BDDValue::make(nodes_.emplace_back()) == FALSE());
 	// true -- placeholder
-	assert(BDDValue(nodes_.emplace_back()) == TRUE());
+	assert(BDDValue::make(nodes_.emplace_back()) == TRUE());
     }
 
     BDDValue make_var(BDDVar var) {

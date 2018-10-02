@@ -120,13 +120,6 @@ public:
 	new (&b->items_[block_offset]) T(args...);
 	return new_index;
     }
-
-    void resize(size_t new_size) {
-	size_t old_size = size_.load(std::memory_order_acquire);
-	while (!size_.compare_exchange_strong(old_size, new_size, std::memory_order_release)) {
-	    old_size = size_.load(std::memory_order_acquire);
-	}
-    }
 };
     
 }  // namespace souffle
