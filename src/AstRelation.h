@@ -69,6 +69,9 @@
 /* Relation allows non-stratifiable negation */
 #define NONSTRAT_RELATION (0x800)
 
+/* Relation has predicates on tuples */
+#define PRED_RELATION (0x1000)
+
 namespace souffle {
 
 /*!
@@ -210,6 +213,10 @@ public:
 	return (qualifier & NONSTRAT_RELATION) != 0;
     }
 
+    bool isPred() const {
+	return (qualifier & PRED_RELATION) != 0;
+    }
+
     /** Check whether relation has a record in its head */
     bool hasRecordInHead() const {
         for (auto& cur : clauses) {
@@ -280,6 +287,9 @@ public:
         }
 	if (isNonStratifiable()) {
 	    os << "nonstrat ";
+	}
+	if (isPred()) {
+	    os << "pred ";
 	}
     }
 

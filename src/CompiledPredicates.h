@@ -27,6 +27,20 @@ static BDDValue predHelperTuple(BDD& bdd, BDDValue parent_pred, const tuple_type
     return sf.ret(bdd.make_and(parent_pred, tuplePred));
 }
 
+template <typename tuple_type>
+static BDDValue predHelperTupleNoPred(BDD& bdd, BDDValue parent_pred, const tuple_type& tuple) {
+    if (parent_pred != BDD::TRUE()) {
+	return BDD::FALSE();
+    }
+    BDDValue tuplePred = BDDValue::from_domain(tuple[tuple_type::arity - 2]);
+    BDDVar tupleVar = BDDVar::from_domain(tuple[tuple_type::arity - 1]);
+    if (tuplePred == BDD::TRUE() && tupleVar == BDD::NO_VAR()) {
+	return BDD::TRUE();
+    }
+    return BDD::FALSE();
+}
+
+
 template <typename Range>
 static BDDValue predHelperRangeEmpty(BDD& bdd, const Range& range, BDDValue parent_pred) {
     if (range.empty()) {
@@ -45,6 +59,14 @@ static BDDValue predHelperRangeEmpty(BDD& bdd, const Range& range, BDDValue pare
     return sf.ret(ret);
 }
 
+template <typename Range>
+static BDDValue predHelperRangeEmptyNoPred(BDD& bdd, const Range& range, BDDValue parent_pred) {
+    if (parent_pred == BDD::FALSE()) {
+	return BDD::FALSE();
+    }
+    return BDDValue(range.empty());
+}
+    
 template <typename Relation>
 static BDDValue predHelperEmpty(BDD& bdd, const Relation& relation, BDDValue parent_pred) {
     if (relation.empty()) {
@@ -62,6 +84,15 @@ static BDDValue predHelperEmpty(BDD& bdd, const Relation& relation, BDDValue par
     }
     return sf.ret(ret);
 }
+
+template <typename Relation>
+static BDDValue predHelperEmptyNoPred(BDD& bdd, const Relation& relation, BDDValue parent_pred) {
+    if (parent_pred == BDD::FALSE()) {
+	return BDD::FALSE();
+    }
+    return relation.empty();
+}
+
 
 template <typename rel_type, typename tuple_type, typename ctxt_type>
 static BDDValue predHelperNotExists(
@@ -87,13 +118,34 @@ static BDDValue predHelperNotExists(
 }
 
 template <typename rel_type, typename tuple_type, typename ctxt_type>
+static BDDValue predHelperNotExistsNoPred(
+    BDD& bdd, const rel_type& rel, const tuple_type& tuple, BDDValue pred, ctxt_type& ctxt) {
+    enum { arity = tuple_type::arity - 2 };
+
+    auto range = rel.template equalRange<typename ram::index_utils::get_full_index<arity>::type>(
+	tuple, ctxt);
+    return range.begin() == range.end();
+}
+
+template <typename rel_type, typename tuple_type, typename ctxt_type>
 static BDDValue predHelperContains(
     BDD& bdd, const rel_type& rel, const tuple_type& tuple, BDDValue pred, ctxt_type& ctxt) {
     return bdd.make_not(predHelperNotExists(bdd, rel, tuple, pred, ctxt));
 }
 
 template <typename rel_type, typename tuple_type, typename ctxt_type>
+static BDDValue predHelperContainsNoPred(
+    BDD& bdd, const rel_type& rel, const tuple_type& tuple, BDDValue pred, ctxt_type& ctxt) {
+    return bdd.make_not(predHelperNotExistsNoPred(bdd, rel, tuple, pred, ctxt));
+}
+
+template <typename rel_type, typename tuple_type, typename ctxt_type>
 static void predHelperInsert(BDD& bdd, rel_type* rel, const tuple_type& tuple, ctxt_type& ctxt) {
+    rel->insert(tuple, ctxt);
+}
+
+template <typename rel_type, typename tuple_type, typename ctxt_type>
+static void predHelperInsertNoPred(BDD& bdd, rel_type* rel, const tuple_type& tuple, ctxt_type& ctxt) {
     rel->insert(tuple, ctxt);
 }
 

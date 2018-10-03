@@ -104,6 +104,7 @@
 %token OVERRIDABLE_QUALIFIER     "relation qualifier overidable"
 %token INLINE_QUALIFIER          "relation qualifier inline"
 %token NONSTRAT_QUALIFIER        "relation qualifier nonstrat"
+%token PRED_QUALIFIER            "relation qualifier pred"
 %token TMATCH                    "match predicate"
 %token TCONTAINS                 "checks whether substring is contained in a string"
 %token CAT                       "concatenation of two strings"
@@ -411,8 +412,10 @@ qualifiers
         $$ = $1 | HASHSET_RELATION;
     }
   | qualifiers NONSTRAT_QUALIFIER {
-        if ($1 & NONSTRAT_RELATION) driver.error(@2, "nonstrat qualifier already set");
         $$ = $1 | NONSTRAT_RELATION;
+    }
+  | qualifiers PRED_QUALIFIER {
+        $$ = $1 | PRED_RELATION;
     }
   | %empty {
         $$ = 0;

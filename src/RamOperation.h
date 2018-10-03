@@ -555,9 +555,12 @@ protected:
      * created? */
     bool hypothetical;
 
+    /** Should we accept only unconditionally-true tuples? */
+    bool hypFilter;
+
 public:
     RamProject(std::unique_ptr<RamRelation> rel, size_t level)
-	    : RamOperation(RN_Project, level), relation(std::move(rel)), filter(nullptr), hypothetical(false) {}
+	: RamOperation(RN_Project, level), relation(std::move(rel)), filter(nullptr), hypothetical(false), hypFilter(false) {}
 
     RamProject(std::unique_ptr<RamRelation> rel, const RamRelation& filter, size_t level)
             : RamOperation(RN_Project, level), relation(std::move(rel)),
@@ -577,6 +580,14 @@ public:
 
     bool getHypothetical() const {
 	return hypothetical;
+    }
+
+    void setHypFilter(bool value) {
+	hypFilter = value;
+    }
+
+    bool isHypFilter() const {
+	return hypFilter;
     }
 
     /** Get relation */
@@ -627,6 +638,7 @@ public:
         for (auto& cur : values) {
             res->values.push_back(std::unique_ptr<RamValue>(cur->clone()));
         }
+	res->hypFilter = hypFilter;
         return res;
     }
 
@@ -651,7 +663,9 @@ protected:
             isFilterEqual = (*filter == *other.filter);
         }
         return RamOperation::equal(other) && getRelation() == other.getRelation() &&
-               equal_targets(values, other.values) && isFilterEqual;
+	    equal_targets(values, other.values) && isFilterEqual &&
+	    hypothetical == other.hypothetical &&
+	    hypFilter == other.hypFilter;
     }
 };
 

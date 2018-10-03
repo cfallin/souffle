@@ -159,7 +159,8 @@ std::unique_ptr<RamRelation> getRamRelation(const AstRelation* rel, const TypeEn
     }
 
     if (!rel) {
-        return std::make_unique<RamRelation>(name, arity, istemp, hashset);
+        auto ret = std::make_unique<RamRelation>(name, arity, istemp, hashset);
+	return ret;
     }
 
     assert(arity == rel->getArity());
@@ -175,7 +176,8 @@ std::unique_ptr<RamRelation> getRamRelation(const AstRelation* rel, const TypeEn
 
     return std::unique_ptr<RamRelation>(new RamRelation(name, arity, attributeNames, attributeTypeQualifiers,
             getSymbolMask(*rel, *typeEnv), rel->isInput(), rel->isComputed(), rel->isOutput(), rel->isBTree(),
-	    rel->isRbtset(), rel->isHashset(), rel->isBrie(), rel->isEqRel(), rel->isData(), istemp));
+            rel->isRbtset(), rel->isHashset(), rel->isBrie(), rel->isEqRel(), rel->isData(), istemp,
+	    rel->isPred()));
 }
 
 std::unique_ptr<RamRelation> getRamRelation(size_t tempNum, size_t arity) {
@@ -622,6 +624,9 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
 	if (clause.isHypothetical()) {
 	    project->setHypothetical(true);
 	}
+	if (!getRelation(&head)->isPred()) {
+	    project->setHypFilter(true);
+	}
 
         for (AstArgument* arg : head.getArguments()) {
             project->addArg(translateValue(arg, valueIndex));
@@ -770,7 +775,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                 }
 	    }
 
-	    if (atom->isHypFilter()) {
+	    if (atom->isHypFilter() || !getRelation(atom)->isPred()) {
 		dynamic_cast<RamScan*>(op.get())->setHypFilter(true);
 	    }
 

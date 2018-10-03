@@ -68,12 +68,15 @@ protected:
     bool isdata;  // Datalog relation in the program
     bool istemp;  // Temporary relation for semi-naive evaluation
 
+    bool pred;    // allows predicates
+
 public:
     RamRelation()
             : RamNode(RN_Relation), arity(0), mask(arity), input(false), output(false), computed(false),
               btree(false), rbtset(false), hashset(false), brie(false), eqrel(false),
 	      isdata(false),
-              istemp(false) {}
+              istemp(false),
+	      pred(false) {}
 
     RamRelation(const std::string& name, unsigned arity, const bool istemp, const bool hashset = false)
             : RamRelation(name, arity) {
@@ -86,11 +89,11 @@ public:
             const bool input = false, const bool computed = false, const bool output = false,
             const bool btree = false, const bool rbtset = false, const bool hashset = false,
             const bool brie = false, const bool eqrel = false, const bool isdata = false,
-	    const bool istemp = false)
+	    const bool istemp = false, const bool pred = false)
             : RamNode(RN_Relation), name(name), arity(arity), attributeNames(attributeNames),
               attributeTypeQualifiers(attributeTypeQualifiers), mask(mask), input(input), output(output),
               computed(computed), btree(btree), rbtset(rbtset), hashset(hashset), brie(brie), eqrel(eqrel),
-              isdata(isdata), istemp(istemp) {
+              isdata(isdata), istemp(istemp), pred(pred) {
         assert(this->attributeNames.size() == arity || this->attributeNames.empty());
         assert(this->attributeTypeQualifiers.size() == arity || this->attributeTypeQualifiers.empty());
     }
@@ -160,6 +163,14 @@ public:
 
     const bool isData() const {
         return isdata;
+    }
+
+    const bool isPred() const {
+	return pred;
+    }
+
+    void setPred(bool pred) {
+	this->pred = pred;
     }
 
     unsigned getArity() const {

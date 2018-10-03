@@ -677,10 +677,11 @@ public:
             if (scan.isPureExistenceCheck()) {
 		if (predicated) {
 		    out << "{";
-		    out << "BDDValue new_pred = bdd.make_not(predHelperEmpty(bdd, *" << relName << ", pred));\n";
 		    if (scan.isHypFilter()) {
+			out << "BDDValue new_pred = bdd.make_not(predHelperEmptyNoPred(bdd, *" << relName << ", pred));\n";
 			out << "if (new_pred == BDD::TRUE()) {\n";
 		    } else {
+			out << "BDDValue new_pred = bdd.make_not(predHelperEmpty(bdd, *" << relName << ", pred));\n";
 			out << "if (new_pred != BDD::FALSE()) {\n";
 		    }
 		    out << "BDDValue pred = new_pred;\n";
@@ -703,9 +704,11 @@ public:
                 out << "for(const auto& env0 : *it) {\n";
 		if (predicated) {
 		    out << "BDDValue old_pred = pred;\n";
-		    out << "BDDValue pred = predHelperTuple(bdd, old_pred, env0);\n";
 		    if (scan.isHypFilter()) {
+			out << "BDDValue pred = predHelperTupleNoPred(bdd, old_pred, env0);\n";
 			out << "if (pred != BDD::TRUE()) { continue; }\n";
+		    } else {
+			out << "BDDValue pred = predHelperTuple(bdd, old_pred, env0);\n";
 		    }
 		}
                 visitSearch(scan, out);
@@ -716,9 +719,11 @@ public:
                     << "*" << relName << ") {\n";
 		if (predicated) {
 		    out << "BDDValue old_pred = pred;\n";
-		    out << "BDDValue pred = predHelperTuple(bdd, old_pred, env" << level << ");\n";
 		    if (scan.isHypFilter()) {
+			out << "BDDValue pred = predHelperTupleNoPred(bdd, old_pred, env" << level << ");\n";
 			out << "if (pred != BDD::TRUE()) { continue; }\n";
+		    } else {
+			out << "BDDValue pred = predHelperTuple(bdd, old_pred, env" << level << ");\n";
 		    }
 		}
                 visitSearch(scan, out);
@@ -766,10 +771,12 @@ public:
 	    if (predicated) {
 		out << "if(!range.empty()) {\n";
 		out << "BDDValue old_pred = pred;\n";
-		out << "BDDValue pred = bdd.make_not(predHelperRangeEmpty(bdd, range, old_pred));\n";
+
 		if (scan.isHypFilter()) {
+		    out << "BDDValue pred = bdd.make_not(predHelperRangeEmptyNoPred(bdd, range, old_pred));\n";
 		    out << "if (pred == BDD::TRUE()) {\n";
 		} else {
+		    out << "BDDValue pred = bdd.make_not(predHelperRangeEmpty(bdd, range, old_pred));\n";
 		    out << "if (pred != BDD::FALSE()) {\n";
 		}
 		visitSearch(scan, out);
@@ -784,10 +791,11 @@ public:
 	    if (predicated) {
 		out << "for(const auto& env" << level << " : range) {\n";
 		out << "BDDValue old_pred = pred;\n";
-		out << "BDDValue pred = predHelperTuple(bdd, old_pred, env" << level << ");\n";
 		if (scan.isHypFilter()) {
+		    out << "BDDValue pred = predHelperTupleNoPred(bdd, old_pred, env" << level << ");\n";
 		    out << "if (pred == BDD::TRUE()) {\n";
 		} else {
+		    out << "BDDValue pred = predHelperTuple(bdd, old_pred, env" << level << ");\n";
 		    out << "if (pred != BDD::FALSE()) {\n";
 		}
 		visitSearch(scan, out);
@@ -1078,7 +1086,11 @@ public:
 		out << "BDDValue old_pred = pred;\n";
 		out << "BDDValue cond = " << print(condition) << ";\n";
 		out << "BDDValue pred = bdd.make_and(old_pred, cond);\n";
-		out << "if (pred != BDD::FALSE()) {\n";
+		if (project.isHypFilter()) {
+		    out << "if (pred == BDD::TRUE()) {\n";
+		} else {
+		    out << "if (pred != BDD::FALSE()) {\n";
+		}
 	    } else {
 		out << "if (" << print(condition) << ") {\n";
 	    }
@@ -1093,7 +1105,7 @@ public:
         }
 	if (predicated) {
 	    out << "tuple[" << (arity - 2) << "] = pred.as_domain();\n";
-	    if (project.getHypothetical()) {
+	    if (project.getHypothetical() && !project.isHypFilter()) {
 		out << "tuple[" << (arity - 1) << "] = bdd.alloc_var().as_domain();\n";
 	    }
 	}
@@ -1103,8 +1115,13 @@ public:
             auto relFilter = getRelationName(project.getFilter());
             auto ctxFilter = "READ_OP_CONTEXT(" + getOpContextName(project.getFilter()) + ")";
 	    if (predicated) {
-		out << "BDDValue new_pred = predHelperContains(bdd, " << relFilter << ", tuple, " << ", pred, " << ctxFilter << ")) {\n";
-		out << "if (new_pred != BDD::FALSE()) {\n";
+		if (project.isHypFilter()) {
+		    out << "BDDValue new_pred = predHelperContainsNoPred(bdd, " << relFilter << ", tuple, " << ", pred, " << ctxFilter << ")) {\n";
+		    out << "if (new_pred == BDD::TRUE()) {\n";
+		} else {
+		    out << "BDDValue new_pred = predHelperContains(bdd, " << relFilter << ", tuple, " << ", pred, " << ctxFilter << ")) {\n";
+		    out << "if (new_pred != BDD::FALSE()) {\n";
+		}
 		out << "BDDValue pred = new_pred;\n";
 	    } else {
 		out << "if (!" << relFilter << ".contains(tuple," << ctxFilter << ")) {\n";
@@ -1113,7 +1130,11 @@ public:
 
         // insert tuple
 	if (predicated) {
-	    out << "predHelperInsert(bdd, " << relName << ", tuple, " << ctxName << ");\n";
+	    if (project.isHypFilter()) {
+		out << "predHelperInsertNoPred(bdd, " << relName << ", tuple, " << ctxName << ");\n";
+	    } else {
+		out << "predHelperInsert(bdd, " << relName << ", tuple, " << ctxName << ");\n";
+	    }
 	} else {
 	    if (Global::config().has("profile")) {
 		out << "if (!(" << relName << "->"
@@ -1225,7 +1246,11 @@ public:
     void visitEmpty(const RamEmpty& empty, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
 	if (predicated) {
-	    out << "predHelperEmpty(bdd, *" << getRelationName(empty.getRelation()) << ", pred)";
+	    if (empty.getRelation().isPred()) {
+		out << "predHelperEmpty(bdd, *" << getRelationName(empty.getRelation()) << ", pred)";
+	    } else {
+		out << "predHelperEmptyNoPred(bdd, *" << getRelationName(empty.getRelation()) << ", pred)";
+	    }
 	} else {
 	    out << getRelationName(empty.getRelation()) << "->"
 		<< "empty()";
@@ -1248,9 +1273,15 @@ public:
         // if it is total we use the contains function
         if (ne.isTotal()) {
 	    if (predicated) {
-		out << "predHelperNotExists(bdd, *" << relName
-		    << ", Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec)
-		    << "}), pred, " << ctxName << ")";
+		if (ne.getRelation().isPred()) {
+		    out << "predHelperNotExists(bdd, *" << relName
+			<< ", Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec)
+			<< "}), pred, " << ctxName << ")";
+		} else {
+		    out << "predHelperNotExistsNoPred(bdd, *" << relName
+			<< ", Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec)
+			<< "}), pred, " << ctxName << ")";
+		}
 	    } else {
 		out << "!" << relName << "->"
 		    << "contains(Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec) << "}),"
@@ -1262,7 +1293,11 @@ public:
 
         // else we conduct a range query
 	if (predicated) {
-	    out << "predHelperRangeEmpty(bdd, ";
+	    if (ne.getRelation().isPred()) {
+		out << "predHelperRangeEmpty(bdd, ";
+	    } else {
+		out << "predHelperRangeEmptyNoPred(bdd, ";
+	    }
 	}
         out << relName << "->"
             << "equalRange";

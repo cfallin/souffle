@@ -827,6 +827,10 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
                 return;  // condition violated => skip insert
             }
 
+	    if (project.isHypFilter() && thisPred != BDD::TRUE()) {
+		return;
+	    }
+
             // create a tuple of the proper arity (also supports arity 0)
             auto arity = project.getRelation().getArity();
             const auto& values = project.getValues();
