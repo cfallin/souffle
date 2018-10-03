@@ -237,6 +237,13 @@ public:
     }
 
     BDDValue make_not(BDDValue a) {
+	if (a == TRUE()) {
+	    return FALSE();
+	}
+	if (a == FALSE()) {
+	    return TRUE();
+	}
+
 	CachedQuery q { CachedQuery::NOT, a.as_domain(), 0 };
 	auto it = cache_.lookup(q);
 	if (!it.done()) {
@@ -251,6 +258,19 @@ public:
     }
 
     BDDValue make_and(BDDValue a, BDDValue b) {
+	if (a == TRUE()) {
+	    return b;
+	}
+	if (b == TRUE()) {
+	    return a;
+	}
+	if (a == FALSE()) {
+	    return FALSE();
+	}
+	if (b == FALSE()) {
+	    return FALSE();
+	}
+
 	CachedQuery q { CachedQuery::AND, a.as_domain(), b.as_domain() };
 	auto it = cache_.lookup(q);
 	if (!it.done()) {
@@ -271,6 +291,19 @@ public:
     }
 
     BDDValue make_or(BDDValue a, BDDValue b) {
+	if (a == TRUE()) {
+	    return TRUE();
+	}
+	if (b == TRUE()) {
+	    return TRUE();
+	}
+	if (a == FALSE()) {
+	    return b;
+	}
+	if (b == FALSE()) {
+	    return a;
+	}
+
 	CachedQuery q { CachedQuery::OR, a.as_domain(), b.as_domain() };
 	auto it = cache_.lookup(q);
 	if (!it.done()) {
