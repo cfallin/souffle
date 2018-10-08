@@ -1830,25 +1830,27 @@ void Synthesiser::generateCode(
     os << "void printAllRecords(std::string outputDirectory = \".\") {\n";
     
     // Print record tables and symtab
-    os << "std::string recordsOutFilepath = outputDirectory + \"/\" + \"" + Global::getRecordFilename() + "\";\n";
-    os << "std::string symtabOutFilepath = outputDirectory + \"/\" + \"" + Global::getSymtabFilename() + "\";\n";
-    os << "std::map<std::string, std::string> writeIODirectivesMap = {\n";
-    os << "{\"IO\", \"file\"},\n";
-    os << "{\"filename\", recordsOutFilepath},\n";
-    os << "{\"symtabfilename\", symtabOutFilepath},\n";
-    os << "{\"name\", \"souffle_records\"}\n";
-    os << "};\n";
-    os << "IODirectives writeIODirectives(writeIODirectivesMap);\n";
-    os << "try {\n";
-    os << "auto writer = IOSystem::getInstance().getRecordWriter(symTable, writeIODirectives);\n";
-    for (int arity: recArities) {
-	os << "printRecords<" << getRecordTupleType(arity) << ">(writer);\n";
+    if (Global::config().has("recorddump")) {
+	os << "std::string recordsOutFilepath = outputDirectory + \"/\" + \"" + Global::getRecordFilename() + "\";\n";
+	os << "std::string symtabOutFilepath = outputDirectory + \"/\" + \"" + Global::getSymtabFilename() + "\";\n";
+	os << "std::map<std::string, std::string> writeIODirectivesMap = {\n";
+	os << "{\"IO\", \"file\"},\n";
+	os << "{\"filename\", recordsOutFilepath},\n";
+	os << "{\"symtabfilename\", symtabOutFilepath},\n";
+	os << "{\"name\", \"souffle_records\"}\n";
+	os << "};\n";
+	os << "IODirectives writeIODirectives(writeIODirectivesMap);\n";
+	os << "try {\n";
+	os << "auto writer = IOSystem::getInstance().getRecordWriter(symTable, writeIODirectives);\n";
+	for (int arity: recArities) {
+	    os << "printRecords<" << getRecordTupleType(arity) << ">(writer);\n";
+	}
+	os << "writer->writeSymbolTable();\n";
+	os << "} catch (std::exception& e) {\n";
+	os << "std::cerr << e.what();\n";
+	os << "exit(1);\n";
+	os << "}\n";
     }
-    os << "writer->writeSymbolTable();\n";
-    os << "} catch (std::exception& e) {\n";
-    os << "std::cerr << e.what();\n";
-    os << "exit(1);\n";
-    os << "}\n";
 
     // Print BDD, if predicated
     if (Global::config().has("predicated")) {

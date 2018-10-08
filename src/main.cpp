@@ -181,6 +181,8 @@ int main(int argc, char** argv) {
                                     "Enable profiling, and write profile data to <FILE>."},
 			    {"predicated", 'q', "", "", false,
 			            "Enable predicated execution (Predicated Datalog)."},
+			    {"recorddump", 'x', "", "", false,
+			            "Dump record table and symbol table."},
                             {"bddbddb", 'b', "FILE", "", false, "Convert input into bddbddb file format."},
                             {"debug-report", 'r', "FILE", "", false, "Write HTML debug report to <FILE>."},
 #ifdef USE_PROVENANCE
