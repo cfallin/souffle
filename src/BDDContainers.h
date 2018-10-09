@@ -42,9 +42,8 @@ private:
 
     Block* getOrAllocateBlock(size_t idx) {
 	std::atomic<Block*>& at = blocks_[idx];
-	Block* b = nullptr;
 	Block* val = at.load(std::memory_order_acquire);
-	if (!val) {
+	while (!val) {
 	    uint8_t* blockStore = new uint8_t[sizeof(Block)];
 	    Block* newBlock = reinterpret_cast<Block*>(blockStore);
 	    if (!at.compare_exchange_strong(val, newBlock,
@@ -52,7 +51,7 @@ private:
 		delete[] blockStore;
 		val = at.load(std::memory_order_acquire);
 	    } else {
-		val = b;
+		val = newBlock;
 	    }
 	}
 	return val;
@@ -114,6 +113,7 @@ public:
 	size_t block_idx = new_index >> kBlockShift;
 	size_t block_offset = new_index & kBlockOffsetMask;
 	Block* b = getOrAllocateBlock(block_idx);
+	assert(b);
 	new (&b->items[block_offset]) T(args...);
 	return new_index;
     }
@@ -142,18 +142,22 @@ private:
 	if (b && b->size.load(std::memory_order_acquire) < kBucketChunkSize) {
 	    return b;
 	}
+	b = nullptr;
 
-	uint8_t* storage = new uint8_t[sizeof(HashBucketChunk)];
-	memset(storage, 0, sizeof(HashBucketChunk));
-	HashBucketChunk* newBlock = reinterpret_cast<HashBucketChunk*>(storage);
-	new (newBlock) HashBucketChunk();
-	newBlock->next.store(b, std::memory_order_relaxed);
-	if (!buckets_[h].compare_exchange_strong(b, newBlock, std::memory_order_release)) {
-	    delete[] storage;
-	    return buckets_[h].load(std::memory_order_acquire);
-	} else {
-	    return newBlock;
+	while (!b) {
+	    uint8_t* storage = new uint8_t[sizeof(HashBucketChunk)];
+	    memset(storage, 0, sizeof(HashBucketChunk));
+	    HashBucketChunk* newBlock = reinterpret_cast<HashBucketChunk*>(storage);
+	    new (newBlock) HashBucketChunk();
+	    newBlock->next.store(b, std::memory_order_relaxed);
+	    if (!buckets_[h].compare_exchange_strong(b, newBlock, std::memory_order_release)) {
+		delete[] storage;
+		b = buckets_[h].load(std::memory_order_acquire);
+	    } else {
+		b = newBlock;
+	    }
 	}
+	return b;
     }
 
 public:
