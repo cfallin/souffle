@@ -21,8 +21,6 @@
 #include <assert.h>
 #include <string.h>
 
-#include "RamTypes.h"
-
 namespace souffle {
 
 template<typename T> class BDDVec {
@@ -35,7 +33,6 @@ private:
     struct Block {
 	T items[kBlockSize];
     };
-
 
     std::atomic<Block*> blocks_[kBlockCount];
     std::atomic<size_t> size_;
@@ -144,7 +141,7 @@ private:
 	}
 	b = nullptr;
 
-	while (!b) {
+	while (!b || b->size.load(std::memory_order_acquire) >= kBucketChunkSize) {
 	    uint8_t* storage = new uint8_t[sizeof(HashBucketChunk)];
 	    memset(storage, 0, sizeof(HashBucketChunk));
 	    HashBucketChunk* newBlock = reinterpret_cast<HashBucketChunk*>(storage);
@@ -260,3 +257,28 @@ public:
 };
     
 }  // namespace souffle
+
+/* ---- performance test: ----
+
+// g++ -std=c++11 -O3 -fopenmp testmap.cpp -o testmap -g3
+
+    struct Key {
+        uint64_t k;
+        size_t hash() const {
+    	return k;
+        }
+    };
+
+    int main() {
+        souffle::BDDMap<Key, uint64_t> m;
+
+    #pragma parallel for
+        for(uint64_t i = 0; i < 1000*1000*1000; i++) {
+    	if ((i & 0xfffffUL) == 0) {
+    	    printf("%lu\n", i);
+    	}
+    	Key k { i };
+    	m.insert(std::move(k), 2*i);
+        }
+    }
+*/
