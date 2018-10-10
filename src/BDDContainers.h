@@ -224,7 +224,7 @@ public:
 	    size_t chunk_size = b->size.load(std::memory_order_acquire);
 	    for (size_t i = 0; i < kBucketChunkSize && i < chunk_size; i++) {
 		if (!b->filled[i].load()) {
-		    return iterator::empty();
+		    continue;
 		}
 		if (b->keys[i] == key) {
 		    return iterator(b, i);
