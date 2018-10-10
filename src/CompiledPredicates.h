@@ -19,12 +19,7 @@ static void predHelperMergeWithPredicates(BDD& bdd, rel_type1* to, rel_type2* fr
 template <typename tuple_type>
 static BDDValue predHelperTuple(BDD& bdd, BDDValue parent_pred, const tuple_type& tuple) {
     BDDValue tuplePred = BDDValue::from_domain(tuple[tuple_type::arity - 2]);
-    BDDVar tupleVar = BDDVar::from_domain(tuple[tuple_type::arity - 1]);
-    BDD::SubFrame sf(bdd);
-    if (tupleVar != BDD::NO_VAR()) {
-        tuplePred = bdd.make_and(tuplePred, bdd.make_var(tupleVar));
-    }
-    return sf.ret(bdd.make_and(parent_pred, tuplePred));
+    return bdd.make_and(parent_pred, tuplePred);
 }
 
 template <typename Range>

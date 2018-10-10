@@ -1092,9 +1092,12 @@ public:
                 << join(project.getValues(), "),(RamDomain)(", rec) << ")});\n";
         }
 	if (predicated) {
-	    out << "tuple[" << (arity - 2) << "] = pred.as_domain();\n";
 	    if (project.getHypothetical()) {
-		out << "tuple[" << (arity - 1) << "] = bdd.alloc_var().as_domain();\n";
+		out << "BDDVar tuple_var = bdd.alloc_var();\n";
+		out << "tuple[" << (arity - 1) << "] = tuple_var.as_domain();\n";
+		out << "tuple[" << (arity - 2) << "] = (bdd.make_and(pred, bdd.make_var(tuple_var))).as_domain();\n";
+	    } else {
+		out << "tuple[" << (arity - 2) << "] = pred.as_domain();\n";
 	    }
 	}
 
