@@ -273,6 +273,9 @@ public:
 	if (b == FALSE()) {
 	    return FALSE();
 	}
+    if (a == b) {
+        return a;
+    }
 
 	CachedQuery q { CachedQuery::AND, a.as_domain(), b.as_domain() };
 	auto it = cache_.lookup(q);
@@ -306,6 +309,9 @@ public:
 	if (b == FALSE()) {
 	    return a;
 	}
+    if (a == b) {
+        return a;
+    }
 
 	CachedQuery q { CachedQuery::OR, a.as_domain(), b.as_domain() };
 	auto it = cache_.lookup(q);
