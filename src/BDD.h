@@ -154,6 +154,9 @@ private:
 	    return it.value();
 	} else {
 	    BDDValue val = BDDValue::make(nodes_.emplace_back(n));
+	    if ((val.val & 0xfffff) == 0) {
+		fprintf(stderr, "BDD size: %lu\n", val.val);
+	    }
 	    nodes_reverse_.insert(std::move(n), BDDValue(val));
 	    return val;
 	}
