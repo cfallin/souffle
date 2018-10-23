@@ -1,0 +1,12 @@
+- move relations, relationwrappers, symTable, and BDD to globals, with
+  defs indexed by name; we'll declare 'externs' manually for each
+  RAM statement .cpp file
+- for each statement, generate a separate string of code:
+  - externs for symtab, BDD, and any referenced relations + their wrappers
+  - the code itself, in a separate method
+  - take hash of this string and create a filename based on it
+- in the toplevel 'run()', just generate a long line of calls to
+  out-of-lined functions
+- move regex helper stuff to a header
+
+- adapt compilation step to compile multiple files
