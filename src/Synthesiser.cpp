@@ -1592,7 +1592,6 @@ void Synthesiser::generateCode(
     }
 
     // print relation definitions
-    std::string initCons;      // initialization of constructor
     std::string deleteForNew;  // matching deletes for each new, used in the destructor
     std::string registerRel;   // registration of relations
     int relCtr = 0;
@@ -1619,10 +1618,7 @@ void Synthesiser::generateCode(
         // defining table
         os << "// -- Table: " << raw_name << "\n";
         os << type << "* " << name << ";\n";
-        if (initCons.size() > 0) {
-            initCons += ",\n";
-        }
-        initCons += name + "(new " + type + "())";
+	registerRel += name + " = new(" + type + "());\n";
         deleteForNew += "delete " + name + ";\n";
         if ((rel.isInput() || rel.isComputed() || Global::config().has("provenance")) && !rel.isTemp()) {
             os << "souffle::RelationWrapper<";
@@ -1652,8 +1648,8 @@ void Synthesiser::generateCode(
             tupleType += "}";
             tupleName += "}";
 
-            initCons += ",\nwrapper_" + name + "(" + "*" + name + ",symTable,\"" + raw_name + "\"," +
-                        tupleType + "," + tupleName + ")";
+	    registerRel += "wrapper_" + name + ".init(" + name + ", &symTable, \"" + raw_name + "\", " + tupleType + ", " + tupleName + ");\n";
+
             registerRel += "addRelation(\"" + raw_name + "\",&wrapper_" + name + "," +
                            std::to_string(rel.isInput()) + "," + std::to_string(rel.isOutput()) + ");\n";
         }
@@ -1666,14 +1662,8 @@ void Synthesiser::generateCode(
     os << classname;
     if (Global::config().has("profile")) {
         os << "(std::string pf=\"profile.log\", std::string inputDirectory = \".\") : profiling_fname(pf)";
-        if (initCons.size() > 0) {
-            os << ",\n" << initCons;
-        }
     } else {
         os << "(std::string inputDirectory = \".\")";
-        if (initCons.size() > 0) {
-            os << " : " << initCons;
-        }
     }
     os << "{\n";
     os << registerRel;

@@ -52,8 +52,8 @@ inline souffle::SouffleProgram* getInstance(const char* p) {
 template <uint32_t id, class RelType, class TupleType, size_t Arity, bool IsInputRel, bool IsOutputRel>
 class RelationWrapper : public Relation {
 private:
-    RelType& relation;
-    SymbolTable& symTable;
+    RelType* relation;
+    SymbolTable* symTable;
     std::string name;
     std::array<const char*, Arity> tupleType;
     std::array<const char*, Arity> tupleName;
@@ -88,14 +88,26 @@ private:
     };
 
 public:
-    RelationWrapper(RelType& r, SymbolTable& s, std::string name, const std::array<const char*, Arity>& t,
+    RelationWrapper(RelType* r, SymbolTable* s, std::string name, const std::array<const char*, Arity>& t,
             const std::array<const char*, Arity>& n)
             : relation(r), symTable(s), name(name), tupleType(t), tupleName(n) {}
+    RelationWrapper()
+	: relation(nullptr), symTable(nullptr) {}
+
+    void init(RelType* r, SymbolTable* s, std::string nm, const std::array<const char*, Arity>& t,
+	      const std::array<const char*, Arity>& n) {
+	relation = r;
+	symTable = s;
+	name = nm;
+	tupleType = t;
+	tupleName = n;	
+    }
+    
     iterator begin() const override {
-        return iterator(new iterator_wrapper(id, this, relation.begin()));
+        return iterator(new iterator_wrapper(id, this, relation->begin()));
     }
     iterator end() const override {
-        return iterator(new iterator_wrapper(id, this, relation.end()));
+        return iterator(new iterator_wrapper(id, this, relation->end()));
     }
     void insert(const tuple& arg) override {
         TupleType t;
@@ -103,7 +115,7 @@ public:
         for (size_t i = 0; i < Arity; i++) {
             t[i] = arg[i];
         }
-        relation.insert(t);
+        relation->insert(t);
     }
     bool contains(const tuple& arg) const override {
         TupleType t;
@@ -111,7 +123,7 @@ public:
         for (size_t i = 0; i < Arity; i++) {
             t[i] = arg[i];
         }
-        return relation.contains(t);
+        return relation->contains(t);
     }
     bool isInput() const override {
         return IsInputRel;
@@ -120,7 +132,7 @@ public:
         return IsOutputRel;
     }
     std::size_t size() override {
-        return relation.size();
+        return relation->size();
     }
     std::string getName() const override {
         return name;
@@ -137,7 +149,7 @@ public:
         return Arity;
     }
     SymbolTable& getSymbolTable() const override {
-        return symTable;
+        return *symTable;
     }
 };
 }  // namespace souffle
