@@ -1060,6 +1060,74 @@ public:
         PRINT_END_COMMENT(out);
     }
 
+    void visitFindDuplicate(const RamFindDuplicate& finddup, std::ostream& out) override {
+        PRINT_BEGIN_COMMENT(out);
+
+	assert(!predicated);  // predicated mode not supported (yet)
+
+	auto dupVars = finddup.getDupVars();
+	auto givenVars = finddup.getGivenVars();
+	int arity = givenVars.size() + dupVars.size();
+	auto rel = finddup.getSrcRelation();
+
+	// Create the streaming state: previous tuple, count for these
+	// given-vars.
+	out << getTupleType(arity) << " finddup_prev_tuple;\n";
+	out << getTupleType(arity) << " finddup_this_tuple;\n";
+	out << "bool finddup_prev_tuple_init = false;\n";
+	out << "bool finddup_dup_emitted = false;\n";
+
+	// Create the main loop over the src relation.
+	out << "for (const auto &env0 : *" << getRelationName(*rel) << ") {\n";
+
+	// Construct the current tuple.
+	for (size_t i = 0; i < givenVars.size(); i++) {
+	    out << "finddup_this_tuple[" << i << "] = env0[" << givenVars[i] << "];\n";
+	}
+	for (size_t i = 0; i < dupVars.size(); i++) {
+	    out << "finddup_this_tuple[" << (givenVars.size() + i) << "] = env0[" <<
+		dupVars[i] << "];\n";
+	}
+
+	// If this tuple has all of the same given-vars as the previous,
+	// but at least one of the dup-vars is different, then emit the
+	// tuple (run nested statement).
+	std::vector<std::string> givenSameConds;
+	std::vector<std::string> dupDifferentConds;
+	for (size_t i = 0; i < givenVars.size(); i++) {
+	    std::ostringstream os;
+	    os << "(finddup_this_tuple[" << i
+	       << "] == finddup_prev_tuple[" << i << "])";
+	    givenSameConds.push_back(os.str());
+	}
+	for (size_t i = 0; i < dupVars.size(); i++) {
+	    std::ostringstream os;
+	    os << "(finddup_this_tuple["
+	       << (givenVars.size() + i) << "] != finddup_prev_tuple["
+	       << (givenVars.size() + i) << "])";
+	    dupDifferentConds.push_back(os.str());
+	}
+
+	// If this 'given' is same as last...
+	out << "if (finddup_prev_tuple_init && (" << join(givenSameConds, " && ") << ")) {\n";
+	// If the 'dup' vars are different and we haven't invoked the nested insn yet...
+	out << "if (!finddup_dup_emitted && (" << join(dupDifferentConds, " || ") << ")) {\n";
+	out << "finddup_dup_emitted = true;\n";
+	visit(*finddup.getNested(), out);
+	out << "}\n";
+	// Otherwise, given is different than the last
+	out << "} else {\n";
+	out << "finddup_dup_emitted = false;\n";
+	out << "}\n";
+	out << "finddup_prev_tuple = finddup_this_tuple;\n";
+	out << "finddup_prev_tuple_init = true;\n";
+
+	// End main loop.
+	out << "}\n";
+
+        PRINT_END_COMMENT(out);
+    }
+    
     void visitProject(const RamProject& project, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
         const auto& rel = project.getRelation();

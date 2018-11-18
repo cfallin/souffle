@@ -97,8 +97,9 @@ struct RamVisitor : public ram_visitor_tag {
             FORWARD(Return);
             FORWARD(Lookup);
             FORWARD(Scan);
-	    FORWARD(Forall);
+            FORWARD(Forall);
             FORWARD(Aggregate);
+            FORWARD(FindDuplicate);
 
             // statements
             FORWARD(Create);
@@ -116,7 +117,7 @@ struct RamVisitor : public ram_visitor_tag {
 
             // control flow
             FORWARD(Program);
-	    FORWARD(ForallContext);
+            FORWARD(ForallContext);
             FORWARD(Sequence);
             FORWARD(Loop);
             FORWARD(Parallel);
@@ -177,6 +178,7 @@ protected:
     LINK(Scan, Search);
     LINK(Aggregate, Search);
     LINK(Forall, Operation);
+    LINK(FindDuplicate, Operation);
     LINK(Search, Operation);
     LINK(Return, Operation);
 

@@ -127,6 +127,8 @@
 ".plan"                               { return yy::parser::make_PLAN(yylloc); }
 "forall"                              { return yy::parser::make_FORALL(yylloc); }
 "∀"                                   { return yy::parser::make_FORALL(yylloc); } /* Unicode 0x2200 */
+"duplicate"                           { return yy::parser::make_DUPLICATE(yylloc); }
+"given"                               { return yy::parser::make_GIVEN(yylloc); }
 "|"                                   { return yy::parser::make_PIPE(yylloc); }
 "["                                   { return yy::parser::make_LBRACKET(yylloc); }
 "]"                                   { return yy::parser::make_RBRACKET(yylloc); }

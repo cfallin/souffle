@@ -175,6 +175,8 @@
 %token LOG                       "log"
 %token EXP                       "exp"
 %token FORALL                    "forall"
+%token DUPLICATE                 "duplicate"
+%token GIVEN                     "given"
 
 %type <uint32_t>                         qualifiers
 %type <AstTypeIdentifier *>              type_id
@@ -188,6 +190,7 @@
 %type <AstAtom *>                        arg_list non_empty_arg_list atom
 %type <std::vector<AstAtom*>>            head
 %type <RuleBody *>                       literal term disjunction conjunction body
+%type <std::vector<AstVariable*>>        ident_list
 %type <AstClause *>                      fact
 %type <AstPragma *>                      pragma
 %type <std::vector<AstClause*>>          rule rule_def
@@ -851,6 +854,29 @@ literal
         auto* res = new AstConstraint(BinaryConstraintOp::CONTAINS, std::unique_ptr<AstArgument>($3), std::unique_ptr<AstArgument>($5));
         res->setSrcLoc(@$);
         $$ = new RuleBody(RuleBody::constraint(res));
+    }
+  | DUPLICATE LPAREN ident_list RPAREN GIVEN LPAREN ident_list RPAREN {
+        auto* res = new AstDuplicate();
+	for (auto& var : $3) {
+	    res->addDupVar(std::unique_ptr<AstVariable>(var));
+	}
+	for (auto& var : $7) {
+	    res->addGivenVar(std::unique_ptr<AstVariable>(var));
+	}
+	$$ = new RuleBody(RuleBody::duplicate(res));
+    }
+
+ident_list
+  : IDENT {
+	auto* var = new AstVariable($1);
+	var->setSrcLoc(@$);
+	$$.push_back(var);
+    }
+  | ident_list COMMA IDENT {
+  	auto* var = new AstVariable($3);
+	var->setSrcLoc(@$);
+	$$ = std::move($1);
+	$$.push_back(var);
     }
 
 /* Fact */

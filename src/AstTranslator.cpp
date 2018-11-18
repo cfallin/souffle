@@ -732,6 +732,70 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
 	op = std::unique_ptr<RamOperation>(forall);
     }
 
+    // If this is a duplicate-finding rule, verify it is in the (only)
+    // supported form, i.e. one relation and one duplicate clause with
+    // all given-cols before all dup-cols, then generate the whole op
+    // and return.
+    if (clause.getDuplicates().size() > 0) {
+	assert(clause.getDuplicates().size() == 1);
+	assert(clause.getConstraints().size() == 0);
+	assert(clause.getNegations().size() == 0);
+	assert(clause.getAtoms().size() == 1);
+
+	auto* atom = clause.getAtoms()[0];
+	auto* dup = clause.getDuplicates()[0];
+
+	std::unique_ptr<RamRelation> relation = getRelation(atom);
+	assert(!relation->isHashset());  // must be an ordered relation
+
+	// Ensure all args to the relation are either simple variables
+	// or wildcards.
+	auto args = atom->getArguments();
+	for (size_t i = 0; i < args.size(); i++) {
+	    if (!args[i]) {
+		continue;
+	    }
+	    assert(dynamic_cast<AstUnnamedVariable*>(args[i]) ||
+		   dynamic_cast<AstVariable*>(args[i]));
+	}
+
+	// Get all given-cols and dup-cols
+	std::vector<int> givenCols;
+	std::vector<int> dupCols;
+	for (auto* var : dup->getGivenVars()) {
+	    auto loc = valueIndex.getDefinitionPoint(*var);
+	    assert(loc.level == 0);
+	    givenCols.push_back(loc.component);
+	}
+	for (auto* var : dup->getDupVars()) {
+	    auto loc = valueIndex.getDefinitionPoint(*var);
+	    assert(loc.level == 0);
+	    dupCols.push_back(loc.component);
+	}
+
+	// Ensure that all dup-cols are to the right of all given-cols
+	int max_given = 0;
+	for (auto col : givenCols) {
+	    if (col > max_given) {
+		max_given = col;
+	    }
+	}
+	for (auto col : dupCols) {
+	    assert(col > max_given);
+	}
+
+	// Create the FindDup op and return.
+	RamFindDuplicate* finddup = new RamFindDuplicate(std::move(op), std::move(relation));
+	for (auto col : givenCols) {
+	    finddup->addGivenVar(col);
+	}
+	for (auto col : dupCols) {
+	    finddup->addDupVar(col);
+	}
+	op = std::unique_ptr<RamOperation>(finddup);
+	goto final_stmt;
+    }
+    
     // build operation bottom-up
     while (!op_nesting.empty()) {
         // get next operator
@@ -861,6 +925,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     }
 
     /* generate the final RAM Insert statement */
+final_stmt:
     std::unique_ptr<RamStatement> s = std::make_unique<RamInsert>(clause, std::move(op));
     if (clause.isForall()) {
 	size_t arity = clause.getForallDomain()->getArity();
@@ -873,6 +938,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
 					       forall->getKeyColumns(),
 					       forall->getDomVarColumns());
     }
+    
     return s;
 }
 

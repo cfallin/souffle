@@ -538,6 +538,101 @@ protected:
     }
 };
 
+/** Duplicate detection */
+class RamFindDuplicate : public RamOperation {
+protected:
+    /** Column numbers defining the tuples on which we look for duplicates,
+     * per "given" col */
+    std::vector<int> dup;
+    /** Column numbers separating the input tuple stream into separate domains
+     * in which we look for duplicates */
+    std::vector<int> given;
+
+    /** Relation over which we look for duplicates */
+    std::unique_ptr<RamRelation> srcRelation;
+
+    /** Nested operation */
+    std::unique_ptr<RamOperation> nested;
+
+public:
+    RamFindDuplicate(std::unique_ptr<RamOperation> nested, std::unique_ptr<RamRelation> src)
+            : RamOperation(RN_FindDuplicate, nested->getLevel() - 1),
+	      srcRelation(std::move(src)),
+	      nested(std::move(nested)) {}
+
+    void addDupVar(int col) {
+	dup.push_back(col);
+    }
+
+    void addGivenVar(int col) {
+	given.push_back(col);
+    }
+
+    std::vector<int> getDupVars() const {
+	return dup;
+    }
+
+    std::vector<int> getGivenVars() const {
+	return given;
+    }
+
+    RamOperation* getNested() const {
+	return nested.get();
+    }
+
+    RamRelation* getSrcRelation() const {
+	return srcRelation.get();
+    }
+
+    /** Get depth of query */
+    size_t getDepth() const override {
+        return 1 + nested->getDepth();
+    }
+
+    /** Print */
+    void print(std::ostream& os, int tabpos) const override;
+
+    /** Obtain list of child nodes */
+    std::vector<const RamNode*> getChildNodes() const override {
+        auto res = RamOperation::getChildNodes();
+	res.push_back(nested.get());
+	res.push_back(srcRelation.get());
+        return res;
+    }
+
+    /** Create clone */
+    RamFindDuplicate* clone() const override {
+        RamFindDuplicate* res = new RamFindDuplicate(
+	    std::unique_ptr<RamOperation>(nested->clone()),
+	    std::unique_ptr<RamRelation>(srcRelation->clone()));
+        for (auto cur : dup) {
+            res->dup.push_back(cur);
+        }
+	for (auto cur : given) {
+            res->given.push_back(cur);
+        }
+        return res;
+    }
+
+    /** Apply mapper */
+    void apply(const RamNodeMapper& map) override {
+        RamOperation::apply(map);
+	nested = map(std::move(nested));
+	srcRelation = map(std::move(srcRelation));
+    }
+
+protected:
+    /** Check equality */
+    bool equal(const RamNode& node) const override {
+        assert(dynamic_cast<const RamFindDuplicate*>(&node));
+        const RamFindDuplicate& other = static_cast<const RamFindDuplicate&>(node);
+	return
+	    dup == other.dup && given == other.given &&
+	    *nested.get() == *other.nested.get() &&
+	    *srcRelation.get() == *other.srcRelation.get();
+    }
+};
+    
 /** Projection */
 class RamProject : public RamOperation {
 protected:

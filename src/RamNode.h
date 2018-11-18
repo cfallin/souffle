@@ -54,7 +54,7 @@ enum RamNodeType {
     RN_Forall,
     RN_ForallContext,
     RN_Aggregate,
-
+    RN_FindDuplicate,
 
     // statements
     RN_Create,

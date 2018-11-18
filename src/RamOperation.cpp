@@ -211,6 +211,22 @@ void RamForall::print(std::ostream& os, int tabpos) const {
     getNested()->print(os, tabpos + 1);
 }
 
+void RamFindDuplicate::print(std::ostream& os, int tabpos) const {
+    os << times('\t', tabpos);
+
+    os << "FINDDUP (";
+    os << join(dup, ", ");
+    os << ") GIVEN (";
+    os << join(given, ", ");
+    os << ") IN ";
+    srcRelation->print(os);
+    os << "\n";
+    nested->print(os, tabpos + 1);
+
+    getNested()->print(os, tabpos + 1);
+}
+
+    
 /** add condition */
 void RamAggregate::addCondition(std::unique_ptr<RamCondition> c, const RamOperation& root) {
     // use condition to narrow scan if possible

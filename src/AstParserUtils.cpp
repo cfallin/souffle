@@ -123,6 +123,15 @@ RuleBody RuleBody::atom(AstAtom* atom) {
     return body;
 }
 
+RuleBody RuleBody::duplicate(AstDuplicate* dup) {
+    RuleBody body;
+    body.dnf.push_back(clause());
+    auto& clause = body.dnf.back();
+    clause.push_back(literal());
+    clause.back() = literal{false, std::unique_ptr<AstDuplicate>(dup)};
+    return body;
+}   
+
 RuleBody RuleBody::constraint(AstConstraint* constraint) {
     RuleBody body;
     body.dnf.push_back(clause());

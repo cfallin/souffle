@@ -547,7 +547,7 @@ protected:
         return *nested.get() == *other.nested.get();
     }    
 };
-
+    
 /**
  * Sequence of RAM statements
  *

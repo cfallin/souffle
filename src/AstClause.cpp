@@ -42,6 +42,8 @@ void AstClause::addToBody(std::unique_ptr<AstLiteral> l) {
         negations.push_back(std::unique_ptr<AstNegation>(static_cast<AstNegation*>(l.release())));
     } else if (dynamic_cast<AstConstraint*>(l.get())) {
         constraints.push_back(std::unique_ptr<AstConstraint>(static_cast<AstConstraint*>(l.release())));
+    } else if (dynamic_cast<AstDuplicate*>(l.get())) {
+        duplicates.push_back(std::unique_ptr<AstDuplicate>(static_cast<AstDuplicate*>(l.release())));
     } else {
         assert(false && "Unsupported literal type!");
     }
@@ -56,6 +58,9 @@ void AstClause::prependToBody(std::unique_ptr<AstLiteral> l) {
     } else if (dynamic_cast<AstConstraint*>(l.get())) {
         constraints.insert(constraints.begin(),
                 std::unique_ptr<AstConstraint>(static_cast<AstConstraint*>(l.release())));
+    } else if (dynamic_cast<AstDuplicate*>(l.get())) {
+        duplicates.insert(duplicates.begin(),
+                std::unique_ptr<AstDuplicate>(static_cast<AstDuplicate*>(l.release())));
     } else {
         assert(false && "Unsupported literal type!");
     }
@@ -77,7 +82,11 @@ AstLiteral* AstClause::getBodyLiteral(size_t idx) const {
         return negations[idx].get();
     }
     idx -= negations.size();
-    return constraints[idx].get();
+    if (idx < constraints.size()) {
+	return constraints[idx].get();
+    }
+    idx -= constraints.size();
+    return duplicates[idx].get();
 }
 
 std::vector<AstLiteral*> AstClause::getBodyLiterals() const {
@@ -90,6 +99,9 @@ std::vector<AstLiteral*> AstClause::getBodyLiterals() const {
     }
     for (auto& cur : constraints) {
         res.push_back(cur.get());
+    }
+    for (auto& cur : duplicates) {
+	res.push_back(cur.get());
     }
     return res;
 }
