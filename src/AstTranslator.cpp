@@ -679,6 +679,9 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
             case AstAggregator::sum:
                 fun = RamAggregate::SUM;
                 break;
+            case AstAggregator::product:
+                fun = RamAggregate::PRODUCT;
+                break;
         }
 
         // translate target expression
@@ -709,7 +712,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     if (clause.isForall()) {
 	const AstAtom* domAtom = clause.getForallDomain();
 	forall = new RamForall(getRelation(domAtom), std::move(op));
-	
+
 	// Set up args.
 	for (size_t i = 0; i < domAtom->getArity(); i++) {
 	    forall->addArg(translateValue(domAtom->getArgument(i), valueIndex));
@@ -795,7 +798,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
 	op = std::unique_ptr<RamOperation>(finddup);
 	goto final_stmt;
     }
-    
+
     // build operation bottom-up
     while (!op_nesting.empty()) {
         // get next operator
@@ -931,14 +934,14 @@ final_stmt:
 	size_t arity = clause.getForallDomain()->getArity();
 	size_t valArity = clause.getForallVars().size();
 	size_t keyArity = arity - valArity;
-	
+
 	// wrap the insert in a forall-context (indicates the scope of tuple accumulation).
 	s = std::make_unique<RamForallContext>(std::move(s), arity,
 					       keyArity, valArity,
 					       forall->getKeyColumns(),
 					       forall->getDomVarColumns());
     }
-    
+
     return s;
 }
 
@@ -1197,7 +1200,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		appendStmt(postamble, std::make_unique<RamDrop>(std::unique_ptr<RamRelation>(forallAugmentedNewRel->clone())));
 		appendStmt(loopSeq, std::make_unique<RamClear>(std::unique_ptr<RamRelation>(forallNewRel->clone())));
 		appendStmt(loopSeq, std::make_unique<RamClear>(std::unique_ptr<RamRelation>(forallAugmentedNewRel->clone())));
-		
+
 		// Rule head for all delta-update rules below:
 		// accumulate into temporary/intermediate relation.
 		forallNewHead.reset(cl->getForallDomain()->clone());
@@ -1241,7 +1244,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		expandRule->print(std::cerr);
 		std::cerr << "\n";
 #endif
-		
+
 		forall1Stmts.push_back(translateClause(*expandRule, program, &typeEnv, 0, false, rel->isHashset()));
 
 		// Create a rule that implements only the forall
@@ -1314,7 +1317,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 
 		std::unique_ptr<RamStatement> stmt(
 		    translateClause(*r1, program, &typeEnv, version, false, rel->isHashset()));
-		
+
 		// add debug info
 		std::ostringstream ds;
 		ds << toString(*cl) << "\nin file ";
@@ -1325,14 +1328,14 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 
                 // increment version counter
                 version++;
-	    }	
+	    }
             assert(cl->getExecutionPlan() == nullptr || version > cl->getExecutionPlan()->getMaxVersion());
         }
     }
 
     // -- now actually build the fixpoint loop.
 
-    
+
     // Three sections, each with all statements unordered. nulls
     // separate sections. (Second and third are used only by
     // forall statements.)
@@ -1356,11 +1359,11 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 	    }
 	    continue;
 	}
-	
+
         // add to loop body
         parallel->add(std::move(rule));
     }
-	
+
 
     /* construct exit conditions for odd and even iteration */
     auto addCondition = [](std::unique_ptr<RamCondition>& cond, std::unique_ptr<RamCondition> clause) {

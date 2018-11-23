@@ -553,6 +553,9 @@ NullableVector<AstArgument*> getInlinedArgument(AstProgram& program, const AstAr
                     } else if (op == AstAggregator::sum) {
                         // sum x : { a(x) }. <=> sum ( sum x : { a1(x) }, sum x : { a2(x) }, ... )
                         versions.push_back(combineAggregators(aggrVersions, BinaryOp::ADD));
+                    } else if (op == AstAggregator::product) {
+                        // product x : { a(x) }. <=> product ( product x : { a1(x) }, product x : { a2(x) }, ... )
+                        versions.push_back(combineAggregators(aggrVersions, BinaryOp::ADD));
                     } else {
                         assert(false && "Unsupported aggregator type");
                     }

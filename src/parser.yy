@@ -114,6 +114,7 @@
 %token MAX                       "max aggregator"
 %token COUNT                     "count aggregator"
 %token SUM                       "sum aggregator"
+%token PRODUCT                   "product aggregator"
 %token STRICT                    "strict marker"
 %token PLAN                      "plan keyword"
 %token IF                        ":-"
@@ -709,8 +710,31 @@ arg
         $$ = res;
         $$->setSrcLoc(@$);
     }
+  | PRODUCT arg COLON atom {
+        auto res = new AstAggregator(AstAggregator::product);
+        res->setTargetExpression(std::unique_ptr<AstArgument>($2));
+        res->addBodyLiteral(std::unique_ptr<AstLiteral>($4));
+        $$ = res;
+        $$->setSrcLoc(@$);
+    }
   | SUM arg COLON LBRACE body RBRACE {
         auto res = new AstAggregator(AstAggregator::sum);
+        res->setTargetExpression(std::unique_ptr<AstArgument>($2));
+        auto bodies = $5->toClauseBodies();
+        if (bodies.size() != 1) {
+            std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
+            exit(1);
+        }
+        for(const auto& cur : bodies[0]->getBodyLiterals()) {
+	    res->addBodyLiteral(std::unique_ptr<AstLiteral>(cur->clone()));
+        }
+        delete bodies[0];
+        delete $5;
+        $$ = res;
+        $$->setSrcLoc(@$);
+    }
+  | PRODUCT arg COLON LBRACE body RBRACE {
+        auto res = new AstAggregator(AstAggregator::product);
         res->setTargetExpression(std::unique_ptr<AstArgument>($2));
         auto bodies = $5->toClauseBodies();
         if (bodies.size() != 1) {

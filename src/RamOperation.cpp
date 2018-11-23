@@ -191,7 +191,7 @@ void RamForall::print(std::ostream& os, int tabpos) const {
     }
 
     os << ") GROUPBY (";
-    
+
     first = true;
     for (size_t i = 0; i < domRelation->getArity(); i++) {
 	if (!(domVars & (1L << i))) {
@@ -226,7 +226,7 @@ void RamFindDuplicate::print(std::ostream& os, int tabpos) const {
     getNested()->print(os, tabpos + 1);
 }
 
-    
+
 /** add condition */
 void RamAggregate::addCondition(std::unique_ptr<RamCondition> c, const RamOperation& root) {
     // use condition to narrow scan if possible
@@ -279,6 +279,9 @@ void RamAggregate::print(std::ostream& os, int tabpos) const {
             break;
         case SUM:
             os << "SUM ";
+            break;
+        case PRODUCT:
+            os << "PRODUCT ";
             break;
     }
 

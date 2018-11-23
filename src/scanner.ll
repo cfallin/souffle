@@ -123,6 +123,7 @@
 "_"                                   { return yy::parser::make_UNDERSCORE(yylloc); }
 "count"                               { return yy::parser::make_COUNT(yylloc); }
 "sum"                                 { return yy::parser::make_SUM(yylloc); }
+"product"                             { return yy::parser::make_PRODUCT(yylloc); }
 ".strict"                             { return yy::parser::make_STRICT(yylloc); }
 ".plan"                               { return yy::parser::make_PLAN(yylloc); }
 "forall"                              { return yy::parser::make_FORALL(yylloc); }
