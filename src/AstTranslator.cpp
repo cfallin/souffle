@@ -1274,6 +1274,9 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
             // each recursive rule results in several operations
             int version = 0;
             const auto& atoms = cl->getAtoms();
+            const auto& negations = cl->getNegations();
+
+	    bool noSCCAtomFound = true;
             for (size_t j = 0; j < atoms.size(); ++j) {
                 const AstAtom* atom = atoms[j];
                 const AstRelation* atomRelation = getAtomRelation(atom, program);
@@ -1283,6 +1286,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                     continue;
                 }
 
+		noSCCAtomFound = false;
                 // modify the processed rule to use relDelta and write to relNew
                 std::unique_ptr<AstClause> r1(cl->clone());
 		if (!forall) {
@@ -1294,8 +1298,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		}
 		r1->getAtoms()[j]->setName(relDelta[atomRelation]->getName());
 		r1->addToBody(std::unique_ptr<AstLiteral>(
-				  new AstNegation(std::unique_ptr<AstAtom>(cl->getHead()->clone()))));
-
+		    new AstNegation(std::unique_ptr<AstAtom>(cl->getHead()->clone()))));
                 // replace wildcards with variables (reduces indices when wildcards are used in recursive
                 // atoms)
                 nameUnnamedVariables(r1.get());
@@ -1329,6 +1332,46 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                 // increment version counter
                 version++;
 	    }
+
+	    if (noSCCAtomFound && rel->isNonStratifiable()) {
+                // modify the processed rule to use relDelta and write to relNew
+                std::unique_ptr<AstClause> r1(cl->clone());
+		if (!forall) {
+		    r1->getHead()->setName(relNew[rel]->getName());
+		} else {
+		    r1->clearHead();
+		    r1->setHead(std::unique_ptr<AstAtom>(forallNewHead->clone()));
+		    r1->clearForall();
+		}
+		r1->addToBody(std::unique_ptr<AstLiteral>(
+		    new AstNegation(std::unique_ptr<AstAtom>(cl->getHead()->clone()))));
+                // replace wildcards with variables (reduces indices when wildcards are used in recursive
+                // atoms)
+                nameUnnamedVariables(r1.get());
+
+                // reduce R to P ...
+
+#if 0
+		std::cerr << " -- expanded clause: --\n";
+		r1->print(std::cerr);
+		std::cerr << "\n";
+#endif
+
+		std::unique_ptr<RamStatement> stmt(
+		    translateClause(*r1, program, &typeEnv, version, false, rel->isHashset()));
+
+		// add debug info
+		std::ostringstream ds;
+		ds << toString(*cl) << "\nin file ";
+		ds << cl->getSrcLoc();
+		stmt = std::make_unique<RamDebugInfo>(std::move(stmt), ds.str());
+
+		stmts.push_back(std::move(stmt));
+
+                // increment version counter
+                version++;
+	    }
+
             assert(cl->getExecutionPlan() == nullptr || version > cl->getExecutionPlan()->getMaxVersion());
         }
     }
@@ -1376,7 +1419,6 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
         addCondition(exitCond, std::unique_ptr<RamCondition>(
                                        new RamEmpty(std::unique_ptr<RamRelation>(relNew[rel]->clone()))));
     }
-
     /* construct fixpoint loop  */
     std::unique_ptr<RamStatement> res;
     if (preamble) appendStmt(res, std::move(preamble));
@@ -1387,6 +1429,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
     if (postamble) {
         appendStmt(res, std::move(postamble));
     }
+
     if (res) return res;
 
     assert(false && "Not Implemented");
