@@ -660,7 +660,7 @@ public:
      * Note: lower-case is utilized due to a collision with
      *  constants in the parser.
      */
-    enum Op { min, max, count, sum };
+    enum Op { min, max, count, sum, product };
 
 private:
     /** The aggregation operator of this aggregation step */

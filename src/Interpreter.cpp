@@ -734,6 +734,9 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
                 case RamAggregate::SUM:
                     res = 0;
                     break;
+                case RamAggregate::PRODUCT:
+                    res = 1;
+                    break;
             }
 
             // init temporary tuple for this level
@@ -796,6 +799,9 @@ void apply(const RamOperation& op, InterpreterEnvironment& env, const EvalContex
                         break;
                     case RamAggregate::SUM:
                         res += cur;
+                        break;
+                    case RamAggregate::PRODUCT:
+                        res *= cur;
                         break;
                 }
             }
@@ -1135,7 +1141,7 @@ void Interpreter::invoke(const RamProgram& prog, InterpreterEnvironment& env) co
 	    exit(1);
 	}
     }
-    
+
     SignalHandler::instance()->reset();
 }
 

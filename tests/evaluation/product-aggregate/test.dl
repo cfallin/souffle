@@ -1,0 +1,8 @@
+.decl Relation(?key: number, ?value: number)
+.decl Aggregate(?key: number, ?Aggregate: number)
+.input Relation
+.output Aggregate
+
+Aggregate(?key, ?aggregate) :-
+    Relation(?key, _),
+    ?aggregate = product ?value : {Relation(?key, ?value)}.

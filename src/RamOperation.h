@@ -275,7 +275,7 @@ protected:
 	       hypFilter == other.hypFilter;
     }
 };
-    
+
 /**
  * Record lookup
  */
@@ -341,7 +341,7 @@ protected:
 class RamAggregate : public RamSearch {
 public:
     /** Types of aggregation functions */
-    enum Function { MAX, MIN, COUNT, SUM };
+    enum Function { MAX, MIN, COUNT, SUM, PRODUCT };
 
 private:
     /** Aggregation function */
@@ -632,7 +632,7 @@ protected:
 	    *srcRelation.get() == *other.srcRelation.get();
     }
 };
-    
+
 /** Projection */
 class RamProject : public RamOperation {
 protected:

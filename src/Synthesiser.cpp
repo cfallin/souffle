@@ -141,7 +141,7 @@ static const std::string getRelationName(const RamRelation& rel) {
 static const std::string getOpContextName(const RamRelation& rel) {
     return getRelationName(rel) + "_op_ctxt";
 }
-   
+
 std::string getTupleType(std::size_t arity) {
     std::stringstream res;
     bool predicated = Global::config().has("predicated");
@@ -188,7 +188,7 @@ std::string getRelationType(const RamRelation& rel, std::size_t arity, const Ind
     }
 
     res << (predicated ? (arity + 2) : arity);
-    
+
     if (!useNoIndex()) {
         for (auto& cur : indexes.getAllOrders()) {
             res << ", ram::index<";
@@ -826,7 +826,7 @@ public:
 
     void visitForallContext(const RamForallContext& fctx, std::ostream& out) override {
 	out << "{\n";
-	
+
 	std::vector<std::string> keyColList;
 	for (size_t col = 0; col < fctx.getArity(); col++) {
 	    bool isKey = fctx.getKeyCols() & (1L << col);
@@ -841,7 +841,7 @@ public:
 	out << "ram::Relation<Auto, " << arity << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
 	out << "CREATE_OP_CONTEXT(forallValsByKeyOpCtxt, forallValsByKey.createContext());\n";
 	out << "std::mutex forallValsByKeyLock;\n";
-	
+
 	visit(*fctx.getNested(), out);
 
 	out << "}\n";
@@ -956,6 +956,9 @@ public:
             case RamAggregate::SUM:
                 init = "0";
                 break;
+            case RamAggregate::PRODUCT:
+                init = "1";
+                break;
         }
         out << "RamDomain res = " << init << ";\n";
 
@@ -1008,6 +1011,11 @@ public:
             out << "res += ";
             visit(*aggregate.getTargetExpression(), out);
             out << ";\n";
+        } else if (aggregate.getFunction() == RamAggregate::PRODUCT) {
+            out << "env" << level << " = cur;\n";
+            out << "res *= ";
+            visit(*aggregate.getTargetExpression(), out);
+            out << ";\n";
         } else {
             // pick function
             std::string fun = "min";
@@ -1021,6 +1029,8 @@ public:
                 case RamAggregate::COUNT:
                     assert(false);
                 case RamAggregate::SUM:
+                    assert(false);
+                case RamAggregate::PRODUCT:
                     assert(false);
             }
 
@@ -1127,7 +1137,7 @@ public:
 
         PRINT_END_COMMENT(out);
     }
-    
+
     void visitProject(const RamProject& project, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
         const auto& rel = project.getRelation();
@@ -1899,7 +1909,7 @@ void Synthesiser::generateCode(
     // issue printAllRecords method
     os << "public:\n";
     os << "void printAllRecords(std::string outputDirectory = \".\") {\n";
-    
+
     // Print record tables and symtab
     if (Global::config().has("recorddump")) {
 	os << "std::string recordsOutFilepath = outputDirectory + \"/\" + \"" + Global::getRecordFilename() + "\";\n";
@@ -1933,7 +1943,7 @@ void Synthesiser::generateCode(
 	os << "exit(1);\n";
 	os << "}\n";
     }
-    
+
     os << "}\n";  // end of printAll() method
 
     // issue loadAll method

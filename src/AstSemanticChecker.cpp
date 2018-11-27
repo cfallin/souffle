@@ -279,7 +279,7 @@ void AstSemanticChecker::checkProgram(ErrorReport& report, const AstProgram& pro
 	}
         if (depGraph.reaches(cur, cur)) {
             AstRelationSet clique = depGraph.clique(cur);
-	    
+
 	    bool hasNonStrat = false;
 	    for (const AstRelation* cyclicRelation : clique) {
 		if (cyclicRelation->isNonStratifiable()) {
@@ -289,7 +289,7 @@ void AstSemanticChecker::checkProgram(ErrorReport& report, const AstProgram& pro
 	    if (hasNonStrat) {
 		continue;
 	    }
-	    
+
             for (const AstRelation* cyclicRelation : clique) {
                 // Negations and aggregations need to be stratified,
                 // unless this is a "nonstratifiable" relation
