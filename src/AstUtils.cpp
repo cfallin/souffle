@@ -71,6 +71,7 @@ bool hasClauseWithNegatedRelation(const AstRelation* relation, const AstRelation
 	if (cl->isForall()) {
 	    if (negRelation == getAtomRelation(cl->getForallDomain(), program)) {
 		foundLiteral = new AstNegation(std::unique_ptr<AstAtom>(cl->getForallDomain()->clone()));
+		return true;
 	    }
 	}
     }
@@ -87,8 +88,8 @@ bool hasClauseWithAggregatedRelation(const AstRelation* relation, const AstRelat
                     foundLiteral = &atom;
                     hasAgg = true;
                 }
-            });
-        });
+	     });
+	 });
         if (hasAgg) {
             return true;
         }
