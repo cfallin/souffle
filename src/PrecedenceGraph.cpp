@@ -136,6 +136,9 @@ std::vector<const AstAtom*> getAllAtoms(const AstClause* cl) {
     for (const AstNegation* neg : cl->getNegations()) {
 	allAtoms.push_back(neg->getAtom());
     }
+    if (cl->isForall()) {
+	allAtoms.push_back(cl->getForallDomain());
+    }
     allAtoms.push_back(cl->getHead());
     return allAtoms;
 }
