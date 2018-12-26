@@ -108,7 +108,7 @@ public:
     void printRecords(const std::unique_ptr<RecordWriteStream>& writer) {
 	std::string delimiter = writer->getDelimiter();
     RamDomain n = r2i.size();
-	for (RamDomain i = 0; i < n; ++i) {
+	for (RamDomain i = 0; i <= n; ++i) {
 	    tuple_type tuple = unpack(i);
 	    std::string str = std::to_string(i) + delimiter + tuple.printRaw(delimiter);
 	    writer->writeNextLine(str);
@@ -116,7 +116,7 @@ public:
     }
 
     void printRecords() {
-	for (RamDomain i = 0; i < r2i.size(); ++i) {
+	for (RamDomain i = 0; i <= r2i.size(); ++i) {
 	    tuple_type tuple = unpack(i);
 	    std::string str = std::to_string(i) + "\t" + tuple.printRaw("\t");
 	    std::cout << str << "\n";
