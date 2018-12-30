@@ -139,12 +139,17 @@ std::vector<const AstAtom*> getAllAtoms(const AstClause* cl) {
     if (cl->isForall()) {
 	allAtoms.push_back(cl->getForallDomain());
     }
+    return allAtoms;
+}
+
+std::vector<const AstAtom*> getAllAtomsWithHead(const AstClause* cl) {
+    std::vector<const AstAtom*> allAtoms = getAllAtoms(cl);
     allAtoms.push_back(cl->getHead());
     return allAtoms;
 }
 
 std::vector<const AstAggregator*> getAllAggregators(const AstClause *cl) {
-    std::vector<const AstAtom*> allAtoms = getAllAtoms(cl);
+    std::vector<const AstAtom*> allAtoms = getAllAtomsWithHead(cl);
     std::vector<const AstConstraint*> allConstraints;
     for (const AstConstraint* ct : cl->getConstraints()) {
 	allConstraints.push_back(ct);
