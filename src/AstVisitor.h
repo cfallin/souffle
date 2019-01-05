@@ -91,6 +91,7 @@ struct AstVisitor : public ast_visitor_tag {
         FORWARD(Atom)
         FORWARD(Negation)
         FORWARD(Constraint)
+	FORWARD(Duplicate)
 
         // components
         FORWARD(ComponentType);
@@ -151,6 +152,7 @@ protected:
     LINK(Atom, Literal)
     LINK(Negation, Literal)
     LINK(Constraint, Literal)
+    LINK(Duplicate, Literal)
     LINK(Literal, Node);
 
     // components

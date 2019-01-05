@@ -20,6 +20,7 @@
 #include "CompiledOptions.h"
 #include "CompiledRecord.h"
 #include "CompiledRelation.h"
+#include "CompiledPredicates.h"
 #include "Logger.h"
 #include "ParallelUtils.h"
 #include "SignalHandler.h"
@@ -31,6 +32,7 @@
 #include <iostream>
 #include <map>
 #include <regex>
+#include <mutex>
 
 #if defined(_OPENMP)
 #include <omp.h>
@@ -131,10 +133,10 @@ public:
         assert(0 <= arg && arg < Arity && "attribute out of bound");
         return tupleName[arg];
     }
-    size_t getArity() const {
+    size_t getArity() const override {
         return Arity;
     }
-    SymbolTable& getSymbolTable() const {
+    SymbolTable& getSymbolTable() const override {
         return symTable;
     }
 };

@@ -142,7 +142,20 @@ static const std::string getOpContextName(const RamRelation& rel) {
     return getRelationName(rel) + "_op_ctxt";
 }
 
-std::string getRelationType(const RamRelation& rel, std::size_t arity, const IndexSet& indexes) {
+std::string getTupleType(std::size_t arity) {
+    std::stringstream res;
+    bool predicated = Global::config().has("predicated");
+    res << "ram::Tuple<RamDomain, " << (predicated ? (arity + 2) : arity) << ">";
+    return res.str();
+}
+
+std::string getRecordTupleType(std::size_t arity) {
+    std::stringstream res;
+    res << "ram::Tuple<RamDomain, " << arity << ">";
+    return res.str();
+}
+
+std::string getRelationType(const RamRelation& rel, std::size_t arity, const IndexSet& indexes, bool predicated) {
     std::stringstream res;
     res << "ram::Relation";
     res << "<";
@@ -174,7 +187,8 @@ std::string getRelationType(const RamRelation& rel, std::size_t arity, const Ind
         }
     }
 
-    res << arity;
+    res << (predicated ? (arity + 2) : arity);
+
     if (!useNoIndex()) {
         for (auto& cur : indexes.getAllOrders()) {
             res << ", ram::index<";
@@ -241,6 +255,7 @@ class CodeEmitter : public RamVisitor<void, std::ostream&> {
 #endif
 
     std::function<void(std::ostream&, const RamNode*)> rec;
+    bool predicated = Global::config().has("predicated");
 
     struct printer {
         CodeEmitter& p;
@@ -270,8 +285,13 @@ public:
 
     void visitFact(const RamFact& fact, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
+	std::string pred = predicated ? "BDD::TRUE().as_domain(), BDD::NO_VAR().as_domain()" : "";
+	if (predicated && fact.getValues().size() > 0) {
+	    pred = ", " + pred;
+	}
+
         out << getRelationName(fact.getRelation()) << "->"
-            << "insert(" << join(fact.getValues(), ",", rec) << ");\n";
+            << "insert(" << join(fact.getValues(), ",", rec) << pred << ");\n";
         PRINT_END_COMMENT(out);
     }
 
@@ -291,6 +311,7 @@ public:
         out << "SymbolMask({" << load.getRelation().getSymbolMask() << "})";
         out << ", symTable, ioDirectives";
         out << ", " << Global::config().has("provenance");
+	out << ", " << Global::config().has("predicated");
         out << ")->readAll(*" << getRelationName(load.getRelation());
         out << ");\n";
         out << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
@@ -313,6 +334,7 @@ public:
             out << "SymbolMask({" << store.getRelation().getSymbolMask() << "})";
             out << ", symTable, ioDirectives";
             out << ", " << Global::config().has("provenance");
+	    out << ", " << Global::config().has("predicated");
             out << ")->writeAll(*" << getRelationName(store.getRelation()) << ");\n";
             out << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
         }
@@ -322,13 +344,15 @@ public:
 
     void visitInsert(const RamInsert& insert, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
+
         // enclose operation with a check for an empty relation
         std::set<RamRelation> input_relations;
         visitDepthFirst(insert, [&](const RamScan& scan) { input_relations.insert(scan.getRelation()); });
         if (!input_relations.empty()) {
             out << "if (" << join(input_relations, "&&", [&](std::ostream& out, const RamRelation& rel) {
-                out << "!" << getRelationName(rel) << "->"
-                    << "empty()";
+		    out << "!" << getRelationName(rel) << "->"
+			<< "empty()";
+
             }) << ") ";
         }
 
@@ -338,6 +362,10 @@ public:
 
         // enclose operation in its own scope
         out << "{\n";
+
+	if (predicated) {
+	    out << "BDDValue pred = BDD::TRUE();\n";
+	}
 
         // create proof counters
         if (Global::config().has("profile")) {
@@ -424,9 +452,15 @@ public:
                 << "extend("
                 << "*" << getRelationName(merge.getTargetRelation()) << ");\n";
         }
-        out << getRelationName(merge.getTargetRelation()) << "->"
-            << "insertAll("
-            << "*" << getRelationName(merge.getSourceRelation()) << ");\n";
+	if (predicated) {
+	    out << "predHelperMergeWithPredicates(bdd, "
+		<< getRelationName(merge.getTargetRelation()) << ", "
+		<< getRelationName(merge.getSourceRelation()) << ");\n";
+	} else {
+	    out << getRelationName(merge.getTargetRelation()) << "->"
+		<< "insertAll("
+		<< "*" << getRelationName(merge.getSourceRelation()) << ");\n";
+	}
         PRINT_END_COMMENT(out);
     }
 
@@ -537,9 +571,34 @@ public:
         PRINT_END_COMMENT(out);
     }
 
+    // For differential debugging (useful for "big features",
+    // e.g. predication): print the sizes of relations in each
+    // iteration of a corecursive loop of rules, in order to compare
+    // two or more runs.
+    void printDebugSize(const RamCondition& cond, std::ostream& out) {
+	if (const RamAnd* a = dynamic_cast<const RamAnd*>(&cond)) {
+	    printDebugSize(a->getLHS(), out);
+	    printDebugSize(a->getRHS(), out);
+	} else if (const RamEmpty* e = dynamic_cast<const RamEmpty*>(&cond)) {
+	    out << "std::cout << \"size(" << getRelationName(e->getRelation()) << ") = \" << "
+		<< getRelationName(e->getRelation()) << "->size() << \"\\n\";\n";
+	}
+    }
+
+    void printDebugSizes(const RamExit& exit, std::ostream& out) {
+	out << "std::cout << \"---- loop exit condition: ----\\n\";\n";
+	printDebugSize(exit.getCondition(), out);
+	out << "std::cout << \"---- end loop exit condition ----\\n\";\n";
+    }
+
     void visitExit(const RamExit& exit, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
-        out << "if(" << print(exit.getCondition()) << ") break;\n";
+	//printDebugSizes(exit, out);
+	if (predicated) {
+	    out << "if(" << print(exit.getCondition()) << " == BDD::TRUE()) break;\n";
+	} else {
+	    out << "if(" << print(exit.getCondition()) << ") break;\n";
+	}
         PRINT_END_COMMENT(out);
     }
 
@@ -578,12 +637,29 @@ public:
         PRINT_BEGIN_COMMENT(out);
         auto condition = search.getCondition();
         if (condition) {
-            out << "if( " << print(condition) << ") {\n" << print(search.getNestedOperation()) << "}\n";
-            if (Global::config().has("profile")) {
-                out << " else { ++private_num_failed_proofs; }";
-            }
+	    if (predicated) {
+		out << "BDDValue cond = " << print(condition) << ";\n";
+		out << "if (cond != BDD::FALSE()) {\n";
+		out << "BDDValue old_pred = pred;\n";
+		out << "BDDValue pred = bdd.make_and(old_pred, cond);\n";
+		out << "if (pred != BDD::FALSE()) {\n";
+		out << print(search.getNestedOperation());
+		out << "}\n";
+		out << "}\n";
+	    } else {
+		out << "if( " << print(condition) << ") {\n" << print(search.getNestedOperation()) << "}\n";
+	    }
+	    if (Global::config().has("profile")) {
+		out << " else { ++private_num_failed_proofs; }";
+	    }
         } else {
-            out << print(search.getNestedOperation());
+	    if (predicated) {
+		out << "if (pred != BDD::FALSE()) {\n";
+		out << print(search.getNestedOperation());
+		out << "}\n";
+	    } else {
+		out << print(search.getNestedOperation());
+	    }
         }
         PRINT_END_COMMENT(out);
     }
@@ -599,21 +675,52 @@ public:
         // if this search is a full scan
         if (scan.getRangeQueryColumns() == 0) {
             if (scan.isPureExistenceCheck()) {
-                out << "if(!" << relName << "->"
-                    << "empty()) {\n";
+		if (predicated) {
+		    out << "{";
+		    out << "BDDValue new_pred = bdd.make_not(predHelperEmpty(bdd, *" << relName << ", pred));\n";
+		    if (scan.isHypFilter()) {
+			out << "if (new_pred == BDD::TRUE()) {\n";
+		    } else {
+			out << "if (new_pred != BDD::FALSE()) {\n";
+		    }
+		    out << "BDDValue pred = new_pred;\n";
+		} else {
+		    out << "if(!" << relName << "->"
+			<< "empty()) {\n";
+		}
                 visitSearch(scan, out);
                 out << "}\n";
+		if (predicated) {
+		    out << "}\n";
+		}
             } else if (scan.getLevel() == 0) {
                 // make this loop parallel
                 out << "pfor(auto it = part.begin(); it<part.end(); ++it) \n";
                 out << "try{";
+		if (predicated) {
+		    out << "BDDValue old_pred = pred;\n";
+		}
                 out << "for(const auto& env0 : *it) {\n";
+		if (predicated) {
+		    out << "BDDValue old_pred = pred;\n";
+		    out << "BDDValue pred = predHelperTuple(bdd, old_pred, env0);\n";
+		    if (scan.isHypFilter()) {
+			out << "if (pred != BDD::TRUE()) { continue; }\n";
+		    }
+		}
                 visitSearch(scan, out);
                 out << "}\n";
                 out << "} catch(std::exception &e) { SignalHandler::instance()->error(e.what());}\n";
             } else {
                 out << "for(const auto& env" << level << " : "
                     << "*" << relName << ") {\n";
+		if (predicated) {
+		    out << "BDDValue old_pred = pred;\n";
+		    out << "BDDValue pred = predHelperTuple(bdd, old_pred, env" << level << ");\n";
+		    if (scan.isHypFilter()) {
+			out << "if (pred != BDD::TRUE()) { continue; }\n";
+		    }
+		}
                 visitSearch(scan, out);
                 out << "}\n";
             }
@@ -637,6 +744,9 @@ public:
                     out << ",";
                 }
             }
+	    if (predicated) {
+		out << ",0,0";
+	    }
         };
 
         // get index to be queried
@@ -644,7 +754,7 @@ public:
         auto index = toIndex(keys);
 
         // if it is a equality-range query
-        out << "const Tuple<RamDomain," << arity << "> key({";
+        out << "const " << getTupleType(arity) << " key({";
         printKeyTuple();
         out << "});\n";
         out << "auto range = " << relName << "->"
@@ -653,13 +763,41 @@ public:
             out << "if (range.empty()) ++private_num_failed_proofs;\n";
         }
         if (scan.isPureExistenceCheck()) {
-	    out << "if(!range.empty()) {\n";
-	    visitSearch(scan, out);
-	    out << "}\n";
+	    if (predicated) {
+		out << "if(!range.empty()) {\n";
+		out << "BDDValue old_pred = pred;\n";
+		out << "BDDValue pred = bdd.make_not(predHelperRangeEmpty(bdd, range, old_pred));\n";
+		if (scan.isHypFilter()) {
+		    out << "if (pred == BDD::TRUE()) {\n";
+		} else {
+		    out << "if (pred != BDD::FALSE()) {\n";
+		}
+		visitSearch(scan, out);
+		out << "}\n";
+		out << "}\n";
+	    } else {
+		out << "if(!range.empty()) {\n";
+		visitSearch(scan, out);
+		out << "}\n";
+	    }
         } else {
-	    out << "for(const auto& env" << level << " : range) {\n";
-	    visitSearch(scan, out);
-	    out << "}\n";
+	    if (predicated) {
+		out << "for(const auto& env" << level << " : range) {\n";
+		out << "BDDValue old_pred = pred;\n";
+		out << "BDDValue pred = predHelperTuple(bdd, old_pred, env" << level << ");\n";
+		if (scan.isHypFilter()) {
+		    out << "if (pred == BDD::TRUE()) {\n";
+		} else {
+		    out << "if (pred != BDD::FALSE()) {\n";
+		}
+		visitSearch(scan, out);
+		out << "}\n";
+		out << "}\n";
+	    } else {
+		out << "for(const auto& env" << level << " : range) {\n";
+		visitSearch(scan, out);
+		out << "}\n";
+	    }
         }
         PRINT_END_COMMENT(out);
     }
@@ -669,7 +807,7 @@ public:
         auto arity = lookup.getArity();
 
         // get the tuple type working with
-        std::string tuple_type = "ram::Tuple<RamDomain," + toString(arity) + ">";
+        std::string tuple_type = getTupleType(arity);
 
         // look up reference
         out << "auto ref = env" << lookup.getReferenceLevel() << "[" << lookup.getReferencePosition()
@@ -696,8 +834,14 @@ public:
 		keyColList.push_back(toString(col));
 	    }
 	}
-	out << "ram::Relation<Auto, " << fctx.getArity() << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
-	
+	size_t arity = fctx.getArity();
+	if (predicated) {
+	    arity += 2;
+	}
+	out << "ram::Relation<Auto, " << arity << ", ram::index<" << join(keyColList, ", ") << ">> forallValsByKey;\n";
+	out << "CREATE_OP_CONTEXT(forallValsByKeyOpCtxt, forallValsByKey.createContext());\n";
+	out << "std::mutex forallValsByKeyLock;\n";
+
 	visit(*fctx.getNested(), out);
 
 	out << "}\n";
@@ -712,15 +856,16 @@ public:
         auto level = forall.getLevel();
 
 	// Construct the tuple being projected at this level.
-	std::string tuple_type = "ram::Tuple<RamDomain," + toString(std::max(1u, arity)) + ">";
+	std::string tuple_type = getTupleType(arity);
 	out << tuple_type << " env" << level << "({\n";
 	for (const auto* arg : forall.getArgs()) {
 	    out << this->print(arg) << ",\n";
 	}
 	out << "});\n";
 
-	std::string keyRange = "";
-	std::string keyVals = "";
+	std::string keyRange;
+	std::string keyVals;
+	size_t keyArity = 0;
 	bool first = true;
 	for (size_t col = 0; col < arity; col++) {
 	    if  (forall.getKeyColumns() & (1L << col)) {
@@ -731,27 +876,29 @@ public:
 		}
 		keyRange += toString(col);
 		keyVals += "env" + toString(level) + "[" + toString(col) + "], ";
+		keyArity++;
 	    } else {
 		keyVals += "0, ";
 	    }
 	}
 
-	out << "ram::Tuple<RamDomain, " << arity << "> forallKey({"
-	    << keyVals << "});\n";
+	out << tuple_type << " forallKey({" << keyVals << "});\n";
 
 	// Step 0: probe the domain relation by the specific tuple to
 	// see if this tuple is in the domain. Skip the rest if not.
 	out << "if (" << relName << "->contains(env" << level << ")) {\n";
 
 	// Step 1: insert into forallValsByKey.
-	out << "forallValsByKey.insert(env" << level << ");\n";
+	out << "forallValsByKeyLock.lock();\n";
+	out << "forallValsByKey.insert(env" << level << ", READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
 
 	// Step 2: probe the values-by-key relation and get the count
 	// for this key.
 	out << "auto valRange = forallValsByKey.equalRange<" << keyRange << ">(" <<
-	    "forallKey);\n";
+	    "forallKey, READ_OP_CONTEXT(forallValsByKeyOpCtxt));\n";
 	out << "size_t valCount = 0;\n";
 	out << "for (const auto& t : valRange) { valCount++; }\n";
+	out << "forallValsByKeyLock.unlock();\n";
 
 	// Step 3: probe the domain relation and get the count for
 	// this key.
@@ -779,7 +926,7 @@ public:
         auto level = aggregate.getLevel();
 
         // get the tuple type working with
-        std::string tuple_type = "ram::Tuple<RamDomain," + toString(std::max(1u, arity)) + ">";
+        std::string tuple_type = getTupleType(arity);
 
         // declare environment variable
         out << tuple_type << " env" << level << ";\n";
@@ -808,6 +955,9 @@ public:
                 break;
             case RamAggregate::SUM:
                 init = "0";
+                break;
+            case RamAggregate::PRODUCT:
+                init = "1";
                 break;
         }
         out << "RamDomain res = " << init << ";\n";
@@ -861,6 +1011,11 @@ public:
             out << "res += ";
             visit(*aggregate.getTargetExpression(), out);
             out << ";\n";
+        } else if (aggregate.getFunction() == RamAggregate::PRODUCT) {
+            out << "env" << level << " = cur;\n";
+            out << "res *= ";
+            visit(*aggregate.getTargetExpression(), out);
+            out << ";\n";
         } else {
             // pick function
             std::string fun = "min";
@@ -874,6 +1029,8 @@ public:
                 case RamAggregate::COUNT:
                     assert(false);
                 case RamAggregate::SUM:
+                    assert(false);
+                case RamAggregate::PRODUCT:
                     assert(false);
             }
 
@@ -913,6 +1070,74 @@ public:
         PRINT_END_COMMENT(out);
     }
 
+    void visitFindDuplicate(const RamFindDuplicate& finddup, std::ostream& out) override {
+        PRINT_BEGIN_COMMENT(out);
+
+	assert(!predicated);  // predicated mode not supported (yet)
+
+	auto dupVars = finddup.getDupVars();
+	auto givenVars = finddup.getGivenVars();
+	int arity = givenVars.size() + dupVars.size();
+	auto rel = finddup.getSrcRelation();
+
+	// Create the streaming state: previous tuple, count for these
+	// given-vars.
+	out << getTupleType(arity) << " finddup_prev_tuple;\n";
+	out << getTupleType(arity) << " finddup_this_tuple;\n";
+	out << "bool finddup_prev_tuple_init = false;\n";
+	out << "bool finddup_dup_emitted = false;\n";
+
+	// Create the main loop over the src relation.
+	out << "for (const auto &env0 : *" << getRelationName(*rel) << ") {\n";
+
+	// Construct the current tuple.
+	for (size_t i = 0; i < givenVars.size(); i++) {
+	    out << "finddup_this_tuple[" << i << "] = env0[" << givenVars[i] << "];\n";
+	}
+	for (size_t i = 0; i < dupVars.size(); i++) {
+	    out << "finddup_this_tuple[" << (givenVars.size() + i) << "] = env0[" <<
+		dupVars[i] << "];\n";
+	}
+
+	// If this tuple has all of the same given-vars as the previous,
+	// but at least one of the dup-vars is different, then emit the
+	// tuple (run nested statement).
+	std::vector<std::string> givenSameConds;
+	std::vector<std::string> dupDifferentConds;
+	for (size_t i = 0; i < givenVars.size(); i++) {
+	    std::ostringstream os;
+	    os << "(finddup_this_tuple[" << i
+	       << "] == finddup_prev_tuple[" << i << "])";
+	    givenSameConds.push_back(os.str());
+	}
+	for (size_t i = 0; i < dupVars.size(); i++) {
+	    std::ostringstream os;
+	    os << "(finddup_this_tuple["
+	       << (givenVars.size() + i) << "] != finddup_prev_tuple["
+	       << (givenVars.size() + i) << "])";
+	    dupDifferentConds.push_back(os.str());
+	}
+
+	// If this 'given' is same as last...
+	out << "if (finddup_prev_tuple_init && (" << join(givenSameConds, " && ") << ")) {\n";
+	// If the 'dup' vars are different and we haven't invoked the nested insn yet...
+	out << "if (!finddup_dup_emitted && (" << join(dupDifferentConds, " || ") << ")) {\n";
+	out << "finddup_dup_emitted = true;\n";
+	visit(*finddup.getNested(), out);
+	out << "}\n";
+	// Otherwise, given is different than the last
+	out << "} else {\n";
+	out << "finddup_dup_emitted = false;\n";
+	out << "}\n";
+	out << "finddup_prev_tuple = finddup_this_tuple;\n";
+	out << "finddup_prev_tuple_init = true;\n";
+
+	// End main loop.
+	out << "}\n";
+
+        PRINT_END_COMMENT(out);
+    }
+
     void visitProject(const RamProject& project, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
         const auto& rel = project.getRelation();
@@ -920,11 +1145,22 @@ public:
         auto relName = getRelationName(rel);
         auto ctxName = "READ_OP_CONTEXT(" + getOpContextName(rel) + ")";
 
+	if (predicated) {
+	    arity += 2;
+	}
+
         // check condition
         auto condition = project.getCondition();
-        if (condition) {
-            out << "if (" << print(condition) << ") {\n";
-        }
+	if (condition) {
+	    if (predicated) {
+		out << "BDDValue old_pred = pred;\n";
+		out << "BDDValue cond = " << print(condition) << ";\n";
+		out << "BDDValue pred = bdd.make_and(old_pred, cond);\n";
+		out << "if (pred != BDD::FALSE()) {\n";
+	    } else {
+		out << "if (" << print(condition) << ") {\n";
+	    }
+	}
 
         // create projected tuple
         if (project.getValues().empty()) {
@@ -932,23 +1168,42 @@ public:
         } else {
             out << "Tuple<RamDomain," << arity << "> tuple({(RamDomain)("
                 << join(project.getValues(), "),(RamDomain)(", rec) << ")});\n";
-
-            // check filter
         }
+	if (predicated) {
+	    if (project.getHypothetical()) {
+		out << "BDDVar tuple_var = bdd.alloc_var();\n";
+		out << "tuple[" << (arity - 1) << "] = tuple_var.as_domain();\n";
+		out << "tuple[" << (arity - 2) << "] = (bdd.make_and(pred, bdd.make_var(tuple_var))).as_domain();\n";
+	    } else {
+		out << "tuple[" << (arity - 2) << "] = pred.as_domain();\n";
+	    }
+	}
+
+	// check filter
         if (project.hasFilter()) {
             auto relFilter = getRelationName(project.getFilter());
             auto ctxFilter = "READ_OP_CONTEXT(" + getOpContextName(project.getFilter()) + ")";
-            out << "if (!" << relFilter << ".contains(tuple," << ctxFilter << ")) {";
+	    if (predicated) {
+		out << "BDDValue new_pred = predHelperContains(bdd, " << relFilter << ", tuple, " << ", pred, " << ctxFilter << ")) {\n";
+		out << "if (new_pred != BDD::FALSE()) {\n";
+		out << "BDDValue pred = new_pred;\n";
+	    } else {
+		out << "if (!" << relFilter << ".contains(tuple," << ctxFilter << ")) {\n";
+	    }
         }
 
         // insert tuple
-        if (Global::config().has("profile")) {
-            out << "if (!(" << relName << "->"
-                << "insert(tuple," << ctxName << "))) { ++private_num_failed_proofs; }\n";
-        } else {
-            out << relName << "->"
-                << "insert(tuple," << ctxName << ");\n";
-        }
+	if (predicated) {
+	    out << "predHelperInsert(bdd, " << relName << ", tuple, " << ctxName << ");\n";
+	} else {
+	    if (Global::config().has("profile")) {
+		out << "if (!(" << relName << "->"
+		    << "insert(tuple," << ctxName << "))) { ++private_num_failed_proofs; }\n";
+	    } else {
+		out << relName << "->"
+		    << "insert(tuple," << ctxName << ");\n";
+	    }
+	}
 
         // end filter
         if (project.hasFilter()) {
@@ -976,98 +1231,120 @@ public:
 
     void visitAnd(const RamAnd& c, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
-        out << "((" << print(c.getLHS()) << ") && (" << print(c.getRHS()) << "))";
+	if (predicated) {
+	    out << "bdd.make_and((" << print(c.getLHS()) << "), (" << print(c.getRHS()) << "))";
+	} else {
+	    out << "((" << print(c.getLHS()) << ") && (" << print(c.getRHS()) << "))";
+	}
         PRINT_END_COMMENT(out);
     }
 
     void visitBinaryRelation(const RamBinaryRelation& rel, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
-        switch (rel.getOperator()) {
-            // comparison operators
-            case BinaryConstraintOp::EQ:
-                out << "((" << print(rel.getLHS()) << ") == (" << print(rel.getRHS()) << "))";
-                break;
-            case BinaryConstraintOp::NE:
-                out << "((" << print(rel.getLHS()) << ") != (" << print(rel.getRHS()) << "))";
-                break;
-            case BinaryConstraintOp::LT:
-                out << "((" << print(rel.getLHS()) << ") < (" << print(rel.getRHS()) << "))";
-                break;
-            case BinaryConstraintOp::LE:
-                out << "((" << print(rel.getLHS()) << ") <= (" << print(rel.getRHS()) << "))";
-                break;
-            case BinaryConstraintOp::GT:
-                out << "((" << print(rel.getLHS()) << ") > (" << print(rel.getRHS()) << "))";
-                break;
-            case BinaryConstraintOp::GE:
-                out << "((" << print(rel.getLHS()) << ") >= (" << print(rel.getRHS()) << "))";
-                break;
 
-            // strings
-            case BinaryConstraintOp::MATCH: {
-                out << "regex_wrapper(symTable.resolve((size_t)";
-                out << print(rel.getLHS());
-                out << "),symTable.resolve((size_t)";
-                out << print(rel.getRHS());
-                out << "))";
-                break;
-            }
-            case BinaryConstraintOp::NOT_MATCH: {
-                out << "!regex_wrapper(symTable.resolve((size_t)";
-                out << print(rel.getLHS());
-                out << "),symTable.resolve((size_t)";
-                out << print(rel.getRHS());
-                out << "))";
-                break;
-            }
-            case BinaryConstraintOp::CONTAINS: {
-                out << "(std::string(symTable.resolve((size_t)";
-                out << print(rel.getRHS());
-                out << ")).find(symTable.resolve((size_t)";
-                out << print(rel.getLHS());
-                out << "))!=std::string::npos)";
-                break;
-            }
-            case BinaryConstraintOp::NOT_CONTAINS: {
-                out << "(std::string(symTable.resolve((size_t)";
-                out << print(rel.getRHS());
-                out << ")).find(symTable.resolve((size_t)";
-                out << print(rel.getLHS());
-                out << "))==std::string::npos)";
-                break;
-            }
-            default:
-                assert(0 && "Unsupported Operation!");
-                break;
-        }
+	switch (rel.getOperator()) {
+	    // comparison operators
+	case BinaryConstraintOp::EQ:
+	    out << "((" << print(rel.getLHS()) << ") == (" << print(rel.getRHS()) << "))";
+	    break;
+	case BinaryConstraintOp::NE:
+	    out << "((" << print(rel.getLHS()) << ") != (" << print(rel.getRHS()) << "))";
+	    break;
+	case BinaryConstraintOp::LT:
+	    out << "((" << print(rel.getLHS()) << ") < (" << print(rel.getRHS()) << "))";
+	    break;
+	case BinaryConstraintOp::LE:
+	    out << "((" << print(rel.getLHS()) << ") <= (" << print(rel.getRHS()) << "))";
+	    break;
+	case BinaryConstraintOp::GT:
+	    out << "((" << print(rel.getLHS()) << ") > (" << print(rel.getRHS()) << "))";
+	    break;
+	case BinaryConstraintOp::GE:
+	    out << "((" << print(rel.getLHS()) << ") >= (" << print(rel.getRHS()) << "))";
+	    break;
+
+	    // strings
+	case BinaryConstraintOp::MATCH: {
+	    out << "regex_wrapper(symTable.resolve((size_t)";
+	    out << print(rel.getLHS());
+	    out << "),symTable.resolve((size_t)";
+	    out << print(rel.getRHS());
+	    out << "))";
+	    break;
+	}
+	case BinaryConstraintOp::NOT_MATCH: {
+	    out << "!regex_wrapper(symTable.resolve((size_t)";
+	    out << print(rel.getLHS());
+	    out << "),symTable.resolve((size_t)";
+	    out << print(rel.getRHS());
+	    out << "))";
+	    break;
+	}
+	case BinaryConstraintOp::CONTAINS: {
+	    out << "(std::string(symTable.resolve((size_t)";
+	    out << print(rel.getRHS());
+	    out << ")).find(symTable.resolve((size_t)";
+	    out << print(rel.getLHS());
+	    out << "))!=std::string::npos)";
+	    break;
+	}
+	case BinaryConstraintOp::NOT_CONTAINS: {
+	    out << "(std::string(symTable.resolve((size_t)";
+	    out << print(rel.getRHS());
+	    out << ")).find(symTable.resolve((size_t)";
+	    out << print(rel.getLHS());
+	    out << "))==std::string::npos)";
+	    break;
+	}
+	default:
+	    assert(0 && "Unsupported Operation!");
+	    break;
+	}
         PRINT_END_COMMENT(out);
     }
 
     void visitEmpty(const RamEmpty& empty, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
-        out << getRelationName(empty.getRelation()) << "->"
-            << "empty()";
+	if (predicated) {
+	    out << "predHelperEmpty(bdd, *" << getRelationName(empty.getRelation()) << ", pred)";
+	} else {
+	    out << getRelationName(empty.getRelation()) << "->"
+		<< "empty()";
+	}
         PRINT_END_COMMENT(out);
     }
 
     void visitNotExists(const RamNotExists& ne, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
+
         // get some details
         const auto& rel = ne.getRelation();
         auto relName = getRelationName(rel);
         auto ctxName = "READ_OP_CONTEXT(" + getOpContextName(rel) + ")";
         auto arity = rel.getArity();
+	if (predicated) {
+	    arity += 2;
+	}
 
         // if it is total we use the contains function
         if (ne.isTotal()) {
-            out << "!" << relName << "->"
-                << "contains(Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec) << "}),"
-                << ctxName << ")";
+	    if (predicated) {
+		out << "predHelperNotExists(bdd, *" << relName
+		    << ", Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec)
+		    << "}), pred, " << ctxName << ")";
+	    } else {
+		out << "!" << relName << "->"
+		    << "contains(Tuple<RamDomain," << arity << ">({" << join(ne.getValues(), ",", rec) << "}),"
+		    << ctxName << ")";
+	    }
+	    PRINT_END_COMMENT(out);
             return;
-            PRINT_END_COMMENT(out);
         }
 
         // else we conduct a range query
+	if (predicated) {
+	    out << "predHelperRangeEmpty(bdd, ";
+	}
         out << relName << "->"
             << "equalRange";
         out << toIndex(ne.getKey());
@@ -1079,7 +1356,12 @@ public:
                 visit(*value, out);
             }
         });
-        out << "})," << ctxName << ").empty()";
+        out << "})," << ctxName << ")";
+	if (predicated) {
+	    out << ", pred)";
+	} else {
+	    out << ".empty()";
+	}
         PRINT_END_COMMENT(out);
     }
 
@@ -1269,7 +1551,7 @@ public:
     void visitPack(const RamPack& pack, std::ostream& out) override {
         PRINT_BEGIN_COMMENT(out);
         out << "pack("
-            << "ram::Tuple<RamDomain," << pack.getValues().size() << ">({" << join(pack.getValues(), ",", rec)
+            << getTupleType(pack.getValues().size()) << "({" << join(pack.getValues(), ",", rec)
             << "})"
             << ")";
         PRINT_END_COMMENT(out);
@@ -1380,6 +1662,13 @@ void Synthesiser::generateCode(
     os << "public:\n";
     os << "SymbolTable symTable;\n";
 
+    bool predicated = Global::config().has("predicated");
+
+    // declare predicate table
+    if (predicated) {
+	os << "BDD bdd;\n";
+    }
+
     // print relation definitions
     std::string initCons;      // initialization of constructor
     std::string deleteForNew;  // matching deletes for each new, used in the destructor
@@ -1391,15 +1680,19 @@ void Synthesiser::generateCode(
         // get some table details
         const auto& rel = create.getRelation();
         int arity = rel.getArity();
+	int physArity = arity;
+	if (predicated) {
+	    physArity += 2;
+	}
         const std::string& raw_name = rel.getName();
         const std::string& name = getRelationName(rel);
 
         // ensure that the type of the new knowledge is the same as that of the delta knowledge
         tempType = (rel.isTemp() && raw_name.find("@delta") != std::string::npos)
-                           ? getRelationType(rel, rel.getArity(), idxAnalysis->getIndexes(rel))
+                           ? getRelationType(rel, arity, idxAnalysis->getIndexes(rel), predicated)
                            : tempType;
-        const std::string& type = (rel.isTemp()) ? tempType : getRelationType(rel, rel.getArity(),
-                                                                      idxAnalysis->getIndexes(rel));
+        const std::string& type = (rel.isTemp()) ? tempType : getRelationType(rel, arity,
+                                                                      idxAnalysis->getIndexes(rel), predicated);
 
         // defining table
         os << "// -- Table: " << raw_name << "\n";
@@ -1413,15 +1706,15 @@ void Synthesiser::generateCode(
             os << "souffle::RelationWrapper<";
             os << relCtr++ << ",";
             os << type << ",";
-            os << "Tuple<RamDomain," << arity << ">,";
-            os << arity << ",";
+            os << "Tuple<RamDomain," << physArity << ">,";
+            os << physArity << ",";
             os << (rel.isInput() ? "true" : "false") << ",";
             os << (rel.isComputed() ? "true" : "false");
             os << "> wrapper_" << name << ";\n";
 
             // construct types
-            std::string tupleType = "std::array<const char *," + std::to_string(arity) + ">{";
-            std::string tupleName = "std::array<const char *," + std::to_string(arity) + ">{";
+            std::string tupleType = "std::array<const char *," + std::to_string(physArity) + ">{";
+            std::string tupleName = "std::array<const char *," + std::to_string(physArity) + ">{";
 
             if (rel.getArity()) {
                 tupleType += "\"" + rel.getArgTypeQualifier(0) + "\"";
@@ -1504,13 +1797,13 @@ void Synthesiser::generateCode(
     os << "for (RamDomain* record: r_it->second) {\n";
     os << "switch(r_it->first) {";
     for (int arity: recArities) {
-	os << "case " << arity << ": \n";
-	os << "ram::Tuple<RamDomain, " << arity << "> tuple" << arity << ";\n";
+	os << "case " << arity << ": {\n";
+	os << getTupleType(arity) << " tuple" << arity << ";\n";
 	for (int i = 0; i < arity; ++i) {
 	    os << "tuple" << arity << "["<< i << "] = record[" << i << "];\n";
 	}
-	os << "pack<ram::Tuple<RamDomain, " << arity << ">>(tuple" << arity << ");\n";
-	os << "break;\n";
+	os << "pack<" << getTupleType(arity) << ">(tuple" << arity << ");\n";
+	os << "break;\n}\n";
     }
     os << "default: break; \n";
     os << "}\n";
@@ -1539,6 +1832,10 @@ void Synthesiser::generateCode(
     // initialize counter
     os << "// -- initialize counter --\n";
     os << "std::atomic<RamDomain> ctr(0);\n\n";
+
+    if (Global::config().has("predicated")) {
+	os << "BDDValue pred = BDD::TRUE();\n\n";
+    }
 
     // set default threads (in embedded mode)
     if (std::stoi(Global::config().get("jobs")) > 0) {
@@ -1593,6 +1890,7 @@ void Synthesiser::generateCode(
                 os << "IOSystem::getInstance().getWriter(";
                 os << "SymbolMask({" << store->getRelation().getSymbolMask() << "})";
                 os << ", symTable, ioDirectives, " << Global::config().has("provenance");
+		os << ", " << Global::config().has("predicated");
                 os << ")->writeAll(*" << getRelationName(store->getRelation()) << ");\n";
 
                 os << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
@@ -1608,29 +1906,44 @@ void Synthesiser::generateCode(
     });
     os << "}\n";  // end of printAll() method
 
-    // Print record tables and symtab
     // issue printAllRecords method
     os << "public:\n";
     os << "void printAllRecords(std::string outputDirectory = \".\") {\n";
-    os << "std::string recordsOutFilepath = outputDirectory + \"/\" + \"" + Global::getRecordFilename() + "\";\n";
-    os << "std::string symtabOutFilepath = outputDirectory + \"/\" + \"" + Global::getSymtabFilename() + "\";\n";
-    os << "std::map<std::string, std::string> writeIODirectivesMap = {\n";
-    os << "{\"IO\", \"file\"},\n";
-    os << "{\"filename\", recordsOutFilepath},\n";
-    os << "{\"symtabfilename\", symtabOutFilepath},\n";
-    os << "{\"name\", \"souffle_records\"}\n";
-    os << "};\n";
-    os << "IODirectives writeIODirectives(writeIODirectivesMap);\n";
-    os << "try {\n";
-    os << "auto writer = IOSystem::getInstance().getRecordWriter(symTable, writeIODirectives);\n";
-    for (int arity: recArities) {
-	os << "printRecords<ram::Tuple<RamDomain," << arity << ">>(writer);\n";
+
+    // Print record tables and symtab
+    if (Global::config().has("recorddump")) {
+	os << "std::string recordsOutFilepath = outputDirectory + \"/\" + \"" + Global::getRecordFilename() + "\";\n";
+	os << "std::string symtabOutFilepath = outputDirectory + \"/\" + \"" + Global::getSymtabFilename() + "\";\n";
+	os << "std::map<std::string, std::string> writeIODirectivesMap = {\n";
+	os << "{\"IO\", \"file\"},\n";
+	os << "{\"filename\", recordsOutFilepath},\n";
+	os << "{\"symtabfilename\", symtabOutFilepath},\n";
+	os << "{\"name\", \"souffle_records\"}\n";
+	os << "};\n";
+	os << "IODirectives writeIODirectives(writeIODirectivesMap);\n";
+	os << "try {\n";
+	os << "auto writer = IOSystem::getInstance().getRecordWriter(symTable, writeIODirectives);\n";
+	for (int arity: recArities) {
+	    os << "printRecords<" << getRecordTupleType(arity) << ">(writer);\n";
+	}
+	os << "writer->writeSymbolTable();\n";
+	os << "} catch (std::exception& e) {\n";
+	os << "std::cerr << e.what();\n";
+	os << "exit(1);\n";
+	os << "}\n";
     }
-    os << "writer->writeSymbolTable();\n";
-    os << "} catch (std::exception& e) {\n";
-    os << "std::cerr << e.what();\n";
-    os << "exit(1);\n";
-    os << "}\n";
+
+    // Print BDD, if predicated
+    if (Global::config().has("predicated")) {
+	os << "std::string bddOutFilepath = outputDirectory + \"/\" + \"" + Global::getBDDNodesFilename() + "\";\n";
+	os << "try {\n";
+	os << "bdd.writeFile(bddOutFilepath);\n";
+	os << "} catch (std::exception& e) {\n";
+	os << "std::cerr << e.what();\n";
+	os << "exit(1);\n";
+	os << "}\n";
+    }
+
     os << "}\n";  // end of printAll() method
 
     // issue loadAll method
@@ -1650,6 +1963,7 @@ void Synthesiser::generateCode(
         os << "SymbolMask({" << load.getRelation().getSymbolMask() << "})";
         os << ", symTable, ioDirectives";
         os << ", " << Global::config().has("provenance");
+	os << ", " << Global::config().has("predicated");
         os << ")->readAll(*" << getRelationName(load.getRelation());
         os << ");\n";
         os << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
@@ -1667,6 +1981,7 @@ void Synthesiser::generateCode(
         os << "IOSystem::getInstance().getWriter(";
         os << "SymbolMask({" << mask << "})";
         os << ", symTable, ioDirectives, " << Global::config().has("provenance");
+	os << ", " << Global::config().has("predicated");
         os << ")->writeAll(*" << relName << ");\n";
         os << "} catch (std::exception& e) {std::cerr << e.what();exit(1);}\n";
     };

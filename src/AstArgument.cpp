@@ -47,6 +47,9 @@ void AstAggregator::print(std::ostream& os) const {
         case sum:
             os << "sum";
             break;
+        case product:
+            os << "product";
+            break;
         case min:
             os << "min";
             break;

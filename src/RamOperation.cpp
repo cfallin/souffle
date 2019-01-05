@@ -147,6 +147,9 @@ void RamScan::print(std::ostream& os, int tabpos) const {
 	os << "WHERE ";
         condition->print(os);
     }
+    if (hypFilter) {
+	os << " FILTER HYPOTHETICALS";
+    }
 
     os << "\n";
     if (getNestedOperation() != nullptr) {
@@ -188,7 +191,7 @@ void RamForall::print(std::ostream& os, int tabpos) const {
     }
 
     os << ") GROUPBY (";
-    
+
     first = true;
     for (size_t i = 0; i < domRelation->getArity(); i++) {
 	if (!(domVars & (1L << i))) {
@@ -207,6 +210,22 @@ void RamForall::print(std::ostream& os, int tabpos) const {
 
     getNested()->print(os, tabpos + 1);
 }
+
+void RamFindDuplicate::print(std::ostream& os, int tabpos) const {
+    os << times('\t', tabpos);
+
+    os << "FINDDUP (";
+    os << join(dup, ", ");
+    os << ") GIVEN (";
+    os << join(given, ", ");
+    os << ") IN ";
+    srcRelation->print(os);
+    os << "\n";
+    nested->print(os, tabpos + 1);
+
+    getNested()->print(os, tabpos + 1);
+}
+
 
 /** add condition */
 void RamAggregate::addCondition(std::unique_ptr<RamCondition> c, const RamOperation& root) {
@@ -261,6 +280,9 @@ void RamAggregate::print(std::ostream& os, int tabpos) const {
         case SUM:
             os << "SUM ";
             break;
+        case PRODUCT:
+            os << "PRODUCT ";
+            break;
     }
 
     if (fun != COUNT) {
@@ -304,6 +326,10 @@ void RamProject::print(std::ostream& os, int tabpos) const {
 
     if (hasFilter()) {
         os << " UNLESS IN " << getFilter().getName();
+    }
+
+    if (getHypothetical()) {
+	os << " ADD NEW PREDICATE VAR";
     }
 }
 

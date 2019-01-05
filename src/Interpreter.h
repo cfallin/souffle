@@ -21,6 +21,7 @@
 #include "RamRelation.h"
 #include "RamTranslationUnit.h"
 #include "SymbolTable.h"
+#include "BDD.h"
 
 #include "RamStatement.h"
 
@@ -78,16 +79,34 @@ private:
     /** Lock for parallel execution */
     mutable Lock lock;
 
+    /** Is hypothetical reasoning enabled? If so, each tuple has an
+     * extra two values: predicate, and variable introduced by this
+     * tuple. */
+    bool enableHypotheses;
+
+    /** Physical-storage arity, after accounting for hypothetical
+     * reasoning. */
+    size_t physArity;
+
+    /** Pointer to BDD, to be used when manipulating predicates */
+    BDD* bdd;
+
+    /** If 0-arity relation (just 1 bit), carry the predicate explicitly */
+    BDDValue empty_rel_pred;
+
 public:
-    InterpreterRelation(size_t relArity)
+    InterpreterRelation(size_t relArity, bool enableHypotheses)
             : arity(relArity), num_tuples(0), head(std::make_unique<Block>()), tail(head.get()),
-              totalIndex(nullptr) {}
+              totalIndex(nullptr), enableHypotheses(enableHypotheses), empty_rel_pred(BDD::TRUE()) {
+	physArity = enableHypotheses ? (relArity + 2) : relArity;
+    }
 
     InterpreterRelation(const InterpreterRelation& other) = delete;
 
     InterpreterRelation(InterpreterRelation&& other)
             : arity(other.arity), num_tuples(other.num_tuples), tail(other.tail),
-              totalIndex(other.totalIndex) {
+              totalIndex(other.totalIndex), enableHypotheses(other.enableHypotheses),
+              physArity(other.physArity) {
         // take over ownership
         head.swap(other.head);
         indices.swap(other.indices);
@@ -99,11 +118,16 @@ public:
         for (auto x : allocatedBlocks) delete[] x;
     }
 
+    void setBDD(BDD* bdd) {
+	this->bdd = bdd;
+    }
+
     // TODO (#421): check whether still required
     InterpreterRelation& operator=(const InterpreterRelation& other) = delete;
 
     InterpreterRelation& operator=(InterpreterRelation&& other) {
         ASSERT(getArity() == other.getArity());
+	ASSERT(enableHypotheses == other.enableHypotheses);
 
         num_tuples = other.num_tuples;
         tail = other.tail;
@@ -121,9 +145,35 @@ public:
         return arity;
     }
 
+    bool getEnableHypotheses() const {
+	return enableHypotheses;
+    }
+
     /** Check whether relation is empty */
     bool empty() const {
         return num_tuples == 0;
+    }
+
+    BDDValue empty(BDDValue pred) const {
+	if (empty()) {
+	    return BDD::TRUE();
+	}
+	if (enableHypotheses) {
+	    if (arity == 0) {
+		return empty_rel_pred;
+	    }
+	    BDDValue ret = BDD::TRUE();
+	    for (const auto& tuple : *this) {
+		BDDValue thisPred = BDDValue::from_domain(tuple[arity]);
+		BDDVar thisVar = BDDVar::from_domain(tuple[arity + 1]);
+		thisPred = thisVar != BDD::NO_VAR() ?
+		    bdd->make_and(thisPred, bdd->make_var(thisVar)) : thisPred;
+		ret = bdd->make_and(ret, bdd->make_not(thisPred));
+	    }
+	    return ret;
+	} else {
+	    return BDD::FALSE();
+	}
     }
 
     /** Gets the number of contained tuples */
@@ -133,22 +183,52 @@ public:
 
     /** Insert tuple */
     virtual void insert(const RamDomain* tuple) {
+	insert(tuple, BDD::TRUE(), BDD::NO_VAR());
+    }
+
+    /** Insert tuple */
+    virtual void insert(const RamDomain* tuple, BDDValue pred, BDDVar pred_var) {
         // check for null-arity
         if (arity == 0) {
             // set number of tuples to one -- that's it
             num_tuples = 1;
+	    if (enableHypotheses) {
+		BDDValue thisPred = pred_var != BDD::NO_VAR() ?
+		    bdd->make_and(pred, bdd->make_var(pred_var)) : pred;
+		empty_rel_pred = bdd->make_and(empty_rel_pred, bdd->make_not(thisPred));
+	    }
             return;
         }
 
         ASSERT(tuple);
 
         // make existence check
-        if (exists(tuple)) {
+        if (exists(tuple, pred, pred_var) == BDD::TRUE()) {
             return;
         }
 
+	// with predication only: look for another tuple with same
+	// values but possibly different predicate, and update the
+	// predicate.
+	if (enableHypotheses && pred_var == BDD::NO_VAR()) {
+	    if (!totalIndex) {
+		totalIndex = getIndex(getTotalIndexKey());
+	    }
+	    auto p = totalIndex->equalRange(tuple);
+	    if (p.first != p.second) {
+		RamDomain* curTuple = const_cast<RamDomain*>(*p.first);
+		// Only possible to merge when no predvar is involved.
+		if (BDDVar::from_domain(curTuple[arity + 1]) == BDD::NO_VAR()) {
+		    curTuple[arity] = bdd->make_or(BDDValue::from_domain(curTuple[arity]), pred).as_domain();
+		    return;
+		}
+	    }
+	    // Otherwise, no merge possible -- continue below and
+	    // insert new tuple.
+	}
+
         // prepare tail
-        if (tail->getFreeSpace() < arity || arity == 0) {
+        if (tail->getFreeSpace() < physArity || physArity == 0) {
             tail->next = std::make_unique<Block>();
             tail = tail->next.get();
         }
@@ -158,7 +238,11 @@ public:
         for (size_t i = 0; i < arity; ++i) {
             newTuple[i] = tuple[i];
         }
-        tail->used += arity;
+	if (enableHypotheses) {
+	    newTuple[arity] = pred.as_domain();
+	    newTuple[arity + 1] = pred_var.as_domain();
+	}
+        tail->used += physArity;
 
         // update all indexes with new tuple
         for (const auto& cur : indices) {
@@ -179,9 +263,16 @@ public:
     /** Merge another relation into this relation */
     void insert(const InterpreterRelation& other) {
         assert(getArity() == other.getArity());
-        for (const auto& cur : other) {
-            insert(cur);
-        }
+	assert(enableHypotheses == other.enableHypotheses);
+	if (enableHypotheses) {
+	    for (const auto& cur : other) {
+		insert(cur, BDDValue::from_domain(cur[arity]), BDDVar::from_domain(cur[arity + 1]));
+	    }
+	} else {
+	    for (const auto& cur : other) {
+		insert(cur);
+	    }
+	}
     }
 
     /** Purge table */
@@ -273,16 +364,51 @@ public:
 
     /** check whether a tuple exists in the relation */
     bool exists(const RamDomain* tuple) const {
-        // handle arity 0
+	return exists(tuple, BDD::TRUE(), BDD::NO_VAR()) != BDD::FALSE();
+    }
+
+    /** check whether a tuple exists in the relation with at least the
+     *  given predicate */
+    BDDValue exists(const RamDomain* tuple, BDDValue pred, BDDVar var) const {
+	// handle arity 0
         if (getArity() == 0) {
-            return !empty();
+	    if (empty()) {
+		return BDD::FALSE();
+	    }
+	    BDDValue n = var != BDD::NO_VAR() ? bdd->make_and(pred, bdd->make_var(var)) : pred;
+            return bdd->make_not(empty(n));
         }
 
         // handle all other arities
         if (!totalIndex) {
             totalIndex = getIndex(getTotalIndexKey());
         }
-        return totalIndex->exists(tuple);
+        if (!totalIndex->exists(tuple)) {
+	    return BDD::FALSE();
+	}
+	if (!enableHypotheses) {
+	    return BDD::TRUE();
+	}
+
+	// Tuple exists, but its predicate may be too narrow -- we
+	// determine here whether the existing predicate "covers"
+	// the new one.
+	auto p = totalIndex->equalRange(tuple);
+	const RamDomain* curTuple = *p.first;
+	BDDValue curPred = BDDValue::from_domain(curTuple[arity]);
+	BDDVar curPredVar = BDDVar::from_domain(curTuple[arity + 1]);
+
+	// keep the below new BDD nodes local -- we don't save them, so avoid polluting the BDD
+	BDD::SubFrame sf(*bdd);
+	
+	BDDValue c = curPredVar != BDD::NO_VAR() ? bdd->make_and(curPred, bdd->make_var(curPredVar)) : curPred;
+	BDDValue n = var != BDD::NO_VAR() ? bdd->make_and(pred, bdd->make_var(var)) : pred;
+	// The current tuple's predicate covers the new tuple's
+	// predicate whenever the current tuple's predicate is true or
+	// the new tuple's predicate is false.
+	BDDValue result = bdd->make_or(c, bdd->make_not(n));
+	// Any non-false value indicates we'll need to make an update.
+	return sf.ret(result);
     }
 
     // --- iterator ---
@@ -292,11 +418,17 @@ public:
         Block* cur;
         RamDomain* tuple;
         size_t arity;
+	RamDomain fake_empty_tuple[2];
 
     public:
         iterator() : cur(nullptr), tuple(nullptr), arity(0) {}
 
         iterator(Block* c, RamDomain* t, size_t a) : cur(c), tuple(t), arity(a) {}
+
+	iterator(BDDValue pred) :
+	    cur(nullptr), tuple(fake_empty_tuple), arity(0),
+	    fake_empty_tuple { pred.as_domain(), BDD::NO_VAR().as_domain() } {
+	}
 
         const RamDomain* operator*() {
             return tuple;
@@ -311,15 +443,15 @@ public:
         }
 
         iterator& operator++() {
-            // check for end
-            if (!cur) {
-                return *this;
-            }
-
-            // support 0-arity
+	    // support 0-arity
             if (arity == 0) {
                 // move to end
                 *this = iterator();
+                return *this;
+            }
+
+            // check for end
+            if (!cur) {
                 return *this;
             }
 
@@ -341,15 +473,12 @@ public:
         }
 
         // support 0-arity
-        auto arity = getArity();
-        if (arity == 0) {
-            Block dummyBlock;
-            RamDomain dummyTuple;
-            return iterator(&dummyBlock, &dummyTuple, 0);
+        if (getArity() == 0) {
+            return iterator(empty_rel_pred);
         }
 
         // support non-empty non-zero arity relation
-        return iterator(head.get(), &head->data[0], arity);
+        return iterator(head.get(), &head->data[0], physArity);
     }
 
     /** get iterator begin of relation */
@@ -377,7 +506,8 @@ public:
 
 class InterpreterEqRelation : public InterpreterRelation {
 public:
-    InterpreterEqRelation(size_t relArity) : InterpreterRelation(relArity) {}
+    InterpreterEqRelation(size_t relArity, bool enableHypotheses)
+	: InterpreterRelation(relArity, enableHypotheses) {}
 
     /** Insert tuple */
     void insert(const RamDomain* tuple) override {
@@ -461,8 +591,15 @@ class InterpreterEnvironment {
     /** The increment counter utilized by some RAM language constructs */
     int counter;
 
+    /** The BDD that defines predicates on tuples */
+    BDD bdd;
+
+    /** Is hypothetical reasoning enabled? */
+    bool enableHypotheses;
+
 public:
-    InterpreterEnvironment(SymbolTable& symbolTable) : symbolTable(symbolTable), counter(0) {}
+    InterpreterEnvironment(SymbolTable& symbolTable)
+            : symbolTable(symbolTable), counter(0), enableHypotheses(false) {}
 
     virtual ~InterpreterEnvironment() {
         for (auto& x : data) {
@@ -492,6 +629,21 @@ public:
         return counter++;
     }
 
+    /** Enables hypothetical reasoning. MUST be called
+     * before any relation is created.
+     */
+    void setEnableHypotheses(bool value) {
+	enableHypotheses = value;
+    }
+
+    bool getEnableHypotheses() const {
+	return enableHypotheses;
+    }
+
+    BDD& getBDD() {
+	return bdd;
+    }
+
     /**
      * Obtains a mutable reference to one of the relations maintained
      * by this environment. If the addressed relation does not exist,
@@ -504,10 +656,13 @@ public:
             res = (pos->second);
         } else {
             if (!id.isEqRel()) {
-                res = new InterpreterRelation(id.getArity());
+                res = new InterpreterRelation(id.getArity(), enableHypotheses);
             } else {
-                res = new InterpreterEqRelation(id.getArity());
+                res = new InterpreterEqRelation(id.getArity(), enableHypotheses);
             }
+	    if (enableHypotheses) {
+		res->setBDD(&getBDD());
+	    }
             data[id.getName()] = res;
         }
         // return result
@@ -722,8 +877,10 @@ public:
      * Runs the given RAM statement on an empty environment and returns
      * this environment after the completion of the execution.
      */
-    std::unique_ptr<InterpreterEnvironment> execute(SymbolTable& table, const RamProgram& prog) const {
+    std::unique_ptr<InterpreterEnvironment> execute(SymbolTable& table, const RamProgram& prog,
+						    bool enableHypotheses = false) const {
         auto env = std::make_unique<InterpreterEnvironment>(table);
+	env->setEnableHypotheses(enableHypotheses);
         invoke(prog, *env);
         return env;
     }
@@ -732,8 +889,9 @@ public:
      * Runs the given RAM statement on an empty environment and returns
      * this environment after the completion of the execution.
      */
-    std::unique_ptr<InterpreterEnvironment> execute(const RamTranslationUnit& tu) const {
-        return execute(tu.getSymbolTable(), *tu.getProgram());
+    std::unique_ptr<InterpreterEnvironment> execute(const RamTranslationUnit& tu,
+						    bool enableHypotheses = false) const {
+        return execute(tu.getSymbolTable(), *tu.getProgram(), enableHypotheses);
     }
 
     /** An execution strategy for the interpreter */

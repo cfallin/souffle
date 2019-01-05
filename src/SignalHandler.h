@@ -40,6 +40,7 @@ private:
     void (*prevFpeHandler)(int);
     void (*prevIntHandler)(int);
     void (*prevSegVHandler)(int);
+    void (*prevUsr1Handler)(int);
 
     /**
      * Signal handler for various types of signals.
@@ -57,6 +58,9 @@ private:
             case SIGSEGV:
                 error = "Segmentation violation";
                 break;
+	    case SIGUSR1:
+		fprintf(stderr, "Current rule:\n%s\n", msg);
+		return;
             default:
                 error = "Unknown";
                 break;
@@ -104,6 +108,10 @@ public:
                 perror("Failed to set SIGSEGV signal handler.");
                 exit(1);
             }
+	    if ((prevUsr1Handler = signal(SIGUSR1, handler)) == SIG_ERR) {
+		perror("Failed to set SIGUSR1 signal handler.");
+		exit(1);
+	    }
             isSet = true;
         }
     }
@@ -128,6 +136,11 @@ public:
                 perror("Failed to reset SIGSEGV signal handler.");
                 exit(1);
             }
+	    // USR1 for progress updates
+	    if (signal(SIGUSR1, prevUsr1Handler) == SIG_ERR) {
+		perror("Failed to reset SIGUSR1 signal handler.");
+		exit(1);
+	    }
             isSet = false;
         }
     }

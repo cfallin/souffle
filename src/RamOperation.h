@@ -183,10 +183,15 @@ protected:
      */
     bool pureExistenceCheck;
 
+    /** Is this a hypothetical-filter scan (accepting only
+     * universally-true tuples)? */
+    bool hypFilter;
+
 public:
     RamScan(std::unique_ptr<RamRelation> r, std::unique_ptr<RamOperation> nested, bool pureExistenceCheck)
             : RamSearch(RN_Scan, std::move(nested)), relation(std::move(r)),
-              queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck) {}
+              queryPattern(relation->getArity()), keys(0), pureExistenceCheck(pureExistenceCheck),
+	      hypFilter(false) {}
 
     /** Get search relation */
     const RamRelation& getRelation() const {
@@ -207,6 +212,14 @@ public:
     // TODO (#541): rename pure existence check to complete/whole etc.
     bool isPureExistenceCheck() const {
         return pureExistenceCheck;
+    }
+
+    void setHypFilter(bool value) {
+	hypFilter = value;
+    }
+
+    bool isHypFilter() const {
+	return hypFilter;
     }
 
     /** Print */
@@ -237,6 +250,7 @@ public:
                 res->queryPattern.push_back(std::unique_ptr<RamValue>(cur->clone()));
             }
         }
+	res->hypFilter = hypFilter;
         return res;
     }
 
@@ -257,10 +271,11 @@ protected:
         const RamScan& other = static_cast<const RamScan&>(node);
         return RamSearch::equal(other) && getRelation() == other.getRelation() &&
                equal_targets(queryPattern, other.queryPattern) && keys == other.keys &&
-	       pureExistenceCheck == other.pureExistenceCheck;
+	       pureExistenceCheck == other.pureExistenceCheck &&
+	       hypFilter == other.hypFilter;
     }
 };
-    
+
 /**
  * Record lookup
  */
@@ -326,7 +341,7 @@ protected:
 class RamAggregate : public RamSearch {
 public:
     /** Types of aggregation functions */
-    enum Function { MAX, MIN, COUNT, SUM };
+    enum Function { MAX, MIN, COUNT, SUM, PRODUCT };
 
 private:
     /** Aggregation function */
@@ -523,6 +538,101 @@ protected:
     }
 };
 
+/** Duplicate detection */
+class RamFindDuplicate : public RamOperation {
+protected:
+    /** Column numbers defining the tuples on which we look for duplicates,
+     * per "given" col */
+    std::vector<int> dup;
+    /** Column numbers separating the input tuple stream into separate domains
+     * in which we look for duplicates */
+    std::vector<int> given;
+
+    /** Relation over which we look for duplicates */
+    std::unique_ptr<RamRelation> srcRelation;
+
+    /** Nested operation */
+    std::unique_ptr<RamOperation> nested;
+
+public:
+    RamFindDuplicate(std::unique_ptr<RamOperation> nested, std::unique_ptr<RamRelation> src)
+            : RamOperation(RN_FindDuplicate, nested->getLevel() - 1),
+	      srcRelation(std::move(src)),
+	      nested(std::move(nested)) {}
+
+    void addDupVar(int col) {
+	dup.push_back(col);
+    }
+
+    void addGivenVar(int col) {
+	given.push_back(col);
+    }
+
+    std::vector<int> getDupVars() const {
+	return dup;
+    }
+
+    std::vector<int> getGivenVars() const {
+	return given;
+    }
+
+    RamOperation* getNested() const {
+	return nested.get();
+    }
+
+    RamRelation* getSrcRelation() const {
+	return srcRelation.get();
+    }
+
+    /** Get depth of query */
+    size_t getDepth() const override {
+        return 1 + nested->getDepth();
+    }
+
+    /** Print */
+    void print(std::ostream& os, int tabpos) const override;
+
+    /** Obtain list of child nodes */
+    std::vector<const RamNode*> getChildNodes() const override {
+        auto res = RamOperation::getChildNodes();
+	res.push_back(nested.get());
+	res.push_back(srcRelation.get());
+        return res;
+    }
+
+    /** Create clone */
+    RamFindDuplicate* clone() const override {
+        RamFindDuplicate* res = new RamFindDuplicate(
+	    std::unique_ptr<RamOperation>(nested->clone()),
+	    std::unique_ptr<RamRelation>(srcRelation->clone()));
+        for (auto cur : dup) {
+            res->dup.push_back(cur);
+        }
+	for (auto cur : given) {
+            res->given.push_back(cur);
+        }
+        return res;
+    }
+
+    /** Apply mapper */
+    void apply(const RamNodeMapper& map) override {
+        RamOperation::apply(map);
+	nested = map(std::move(nested));
+	srcRelation = map(std::move(srcRelation));
+    }
+
+protected:
+    /** Check equality */
+    bool equal(const RamNode& node) const override {
+        assert(dynamic_cast<const RamFindDuplicate*>(&node));
+        const RamFindDuplicate& other = static_cast<const RamFindDuplicate&>(node);
+	return
+	    dup == other.dup && given == other.given &&
+	    *nested.get() == *other.nested.get() &&
+	    *srcRelation.get() == *other.srcRelation.get();
+    }
+};
+
 /** Projection */
 class RamProject : public RamOperation {
 protected:
@@ -536,13 +646,17 @@ protected:
     /* Values for projection */
     std::vector<std::unique_ptr<RamValue>> values;
 
+    /** Projection allocates new "hypothetical" variable on all tuples
+     * created? */
+    bool hypothetical;
+
 public:
     RamProject(std::unique_ptr<RamRelation> rel, size_t level)
-            : RamOperation(RN_Project, level), relation(std::move(rel)), filter(nullptr) {}
+	    : RamOperation(RN_Project, level), relation(std::move(rel)), filter(nullptr), hypothetical(false) {}
 
     RamProject(std::unique_ptr<RamRelation> rel, const RamRelation& filter, size_t level)
             : RamOperation(RN_Project, level), relation(std::move(rel)),
-              filter(std::make_unique<RamRelation>(filter)) {}
+              filter(std::make_unique<RamRelation>(filter)), hypothetical(false) {}
 
     /** Add value for a column */
     void addArg(std::unique_ptr<RamValue> v) {
@@ -551,6 +665,14 @@ public:
 
     /** Add condition to project, needed for different level check */
     void addCondition(std::unique_ptr<RamCondition> c, const RamOperation& root) override;
+
+    void setHypothetical(bool h) {
+	hypothetical = h;
+    }
+
+    bool getHypothetical() const {
+	return hypothetical;
+    }
 
     /** Get relation */
     const RamRelation& getRelation() const {

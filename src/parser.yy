@@ -114,9 +114,11 @@
 %token MAX                       "max aggregator"
 %token COUNT                     "count aggregator"
 %token SUM                       "sum aggregator"
+%token PRODUCT                   "product aggregator"
 %token STRICT                    "strict marker"
 %token PLAN                      "plan keyword"
 %token IF                        ":-"
+%token IF_HYP                    "?-"
 %token DECL                      "relation declaration"
 %token INPUT_DECL                "input directives declaration"
 %token OUTPUT_DECL               "output directives declaration"
@@ -173,8 +175,9 @@
 %token ATANH                     "atanh"
 %token LOG                       "log"
 %token EXP                       "exp"
-%token MINCOUNT                  "mincount"
 %token FORALL                    "forall"
+%token DUPLICATE                 "duplicate"
+%token GIVEN                     "given"
 
 %type <uint32_t>                         qualifiers
 %type <AstTypeIdentifier *>              type_id
@@ -188,6 +191,7 @@
 %type <AstAtom *>                        arg_list non_empty_arg_list atom
 %type <std::vector<AstAtom*>>            head
 %type <RuleBody *>                       literal term disjunction conjunction body
+%type <std::vector<AstVariable*>>        ident_list
 %type <AstClause *>                      fact
 %type <AstPragma *>                      pragma
 %type <std::vector<AstClause*>>          rule rule_def
@@ -199,6 +203,7 @@
 %type <std::vector<AstTypeIdentifier>>   type_params type_param_list
 %type <std::string>                      comp_override
 %type <AstIODirective *>                 key_value_pairs non_empty_key_value_pairs iodirective iodirective_body
+%type <bool>                             if_operator
 %type <AstVariable *>                    forall_arg
 %type <std::vector<AstVariable*>>        forall_arg_list
 
@@ -705,8 +710,31 @@ arg
         $$ = res;
         $$->setSrcLoc(@$);
     }
+  | PRODUCT arg COLON atom {
+        auto res = new AstAggregator(AstAggregator::product);
+        res->setTargetExpression(std::unique_ptr<AstArgument>($2));
+        res->addBodyLiteral(std::unique_ptr<AstLiteral>($4));
+        $$ = res;
+        $$->setSrcLoc(@$);
+    }
   | SUM arg COLON LBRACE body RBRACE {
         auto res = new AstAggregator(AstAggregator::sum);
+        res->setTargetExpression(std::unique_ptr<AstArgument>($2));
+        auto bodies = $5->toClauseBodies();
+        if (bodies.size() != 1) {
+            std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
+            exit(1);
+        }
+        for(const auto& cur : bodies[0]->getBodyLiterals()) {
+	    res->addBodyLiteral(std::unique_ptr<AstLiteral>(cur->clone()));
+        }
+        delete bodies[0];
+        delete $5;
+        $$ = res;
+        $$->setSrcLoc(@$);
+    }
+  | PRODUCT arg COLON LBRACE body RBRACE {
+        auto res = new AstAggregator(AstAggregator::product);
         res->setTargetExpression(std::unique_ptr<AstArgument>($2));
         auto bodies = $5->toClauseBodies();
         if (bodies.size() != 1) {
@@ -803,9 +831,16 @@ arg_list
 atom
   : rel_id LPAREN arg_list RPAREN {
         $$ = $3;
-        $3->setName(*$1);
+        $$->setName(*$1);
         delete $1;
         $$->setSrcLoc(@$);
+    }
+  | PLUS rel_id LPAREN arg_list RPAREN {
+        $$ = $4;
+        $$->setName(*$2);
+        delete $2;
+        $$->setSrcLoc(@$);
+	$$->setHypFilter(true);
     }
 
 /* Literal */
@@ -843,6 +878,29 @@ literal
         auto* res = new AstConstraint(BinaryConstraintOp::CONTAINS, std::unique_ptr<AstArgument>($3), std::unique_ptr<AstArgument>($5));
         res->setSrcLoc(@$);
         $$ = new RuleBody(RuleBody::constraint(res));
+    }
+  | DUPLICATE LPAREN ident_list RPAREN GIVEN LPAREN ident_list RPAREN {
+        auto* res = new AstDuplicate();
+	for (auto& var : $3) {
+	    res->addDupVar(std::unique_ptr<AstVariable>(var));
+	}
+	for (auto& var : $7) {
+	    res->addGivenVar(std::unique_ptr<AstVariable>(var));
+	}
+	$$ = new RuleBody(RuleBody::duplicate(res));
+    }
+
+ident_list
+  : IDENT {
+	auto* var = new AstVariable($1);
+	var->setSrcLoc(@$);
+	$$.push_back(var);
+    }
+  | ident_list COMMA IDENT {
+  	auto* var = new AstVariable($3);
+	var->setSrcLoc(@$);
+	$$ = std::move($1);
+	$$.push_back(var);
     }
 
 /* Fact */
@@ -941,7 +999,7 @@ exec_plan
 
 /* Rule Definition */
 rule_def
-  : head IF body DOT {
+  : head if_operator body DOT {
         auto bodies = $3->toClauseBodies();
         for(const auto& head : $1) {
             for(AstClause* body : bodies) {
@@ -949,6 +1007,7 @@ rule_def
                 cur->setHead(std::unique_ptr<AstAtom>(head->clone()));
                 cur->setSrcLoc(@$);
                 cur->setGenerated($1.size() != 1 || bodies.size() != 1);
+		cur->setHypothetical($2);
                 $$.push_back(cur);
             }
         }
@@ -960,7 +1019,7 @@ rule_def
         }
         delete $3;
     }
-  | head IF FORALL atom SLASH LPAREN forall_arg_list RPAREN COLON body DOT {
+  | head if_operator FORALL atom SLASH LPAREN forall_arg_list RPAREN COLON body DOT {
         auto* rulebody = $10;
         auto bodies = rulebody->toClauseBodies();
 	auto heads = $1;
@@ -972,6 +1031,7 @@ rule_def
                 cur->setHead(std::unique_ptr<AstAtom>(head->clone()));
                 cur->setSrcLoc(@$);
                 cur->setGenerated(heads.size() != 1 || bodies.size() != 1);
+		cur->setHypothetical($2);
 		cur->setForallDomain(std::unique_ptr<AstAtom>(forallDom->clone()));
 	        for (auto* var : vars) {
 	            cur->addForallVar(std::unique_ptr<AstVariable>(var->clone()));
@@ -1006,6 +1066,14 @@ forall_arg
   : IDENT {
         $$ = new AstVariable($1);
         $$->setSrcLoc(@$);
+    }
+
+if_operator
+  : IF {
+      $$ = false;
+    }
+  | IF_HYP {
+      $$ = true;
     }
 
 /* Rule */

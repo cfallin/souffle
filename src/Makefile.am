@@ -151,10 +151,13 @@ soufflepublic_HEADERS = CompiledOptions.h       \
                         CompiledRelation.h      \
                         CompiledTuple.h         \
                         CompiledRecord.h        \
+                        CompiledPredicates.h    \
                         CompiledSouffle.h       \
                         SignalHandler.h         \
                         SouffleInterface.h      \
                         ParallelUtils.h         \
+                        BDD.h                   \
+                        BDDContainers.h         \
                         BTree.h                 \
                         htmx86.h                \
                         Trie.h                  \

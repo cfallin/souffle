@@ -20,6 +20,7 @@
 #include "SymbolMask.h"
 #include "SymbolTable.h"
 #include "Util.h"
+#include "BDD.h"
 
 #ifdef USE_LIBZ
 #include "gzfstream.h"
@@ -38,8 +39,8 @@ namespace souffle {
 class ReadStreamCSV : public ReadStream {
 public:
     ReadStreamCSV(std::istream& file, const SymbolMask& symbolMask, SymbolTable& symbolTable,
-            const IODirectives& ioDirectives, const bool provenance = false)
-            : ReadStream(symbolMask, symbolTable, provenance), delimiter(getDelimiter(ioDirectives)),
+		  const IODirectives& ioDirectives, const bool provenance = false, const bool predicated = false)
+	    : ReadStream(symbolMask, symbolTable, provenance, predicated), delimiter(getDelimiter(ioDirectives)),
               file(file), lineNumber(0), inputMap(getInputColumnMap(ioDirectives, symbolMask.getArity())) {
         while (this->inputMap.size() < symbolMask.getArity()) {
             int size = this->inputMap.size();
@@ -61,7 +62,8 @@ protected:
             return nullptr;
         }
         std::string line;
-        std::unique_ptr<RamDomain[]> tuple = std::make_unique<RamDomain[]>(symbolMask.getArity());
+        std::unique_ptr<RamDomain[]> tuple = std::make_unique<RamDomain[]>(
+	    symbolMask.getArity() + (predicated ? 2 : 0));
         bool error = false;
 
         if (!getline(file, line)) {
@@ -131,6 +133,12 @@ protected:
             errorMessage << "Values missing in line " << lineNumber << "; ";
             throw std::invalid_argument(errorMessage.str());
         }
+
+	if (predicated) {
+	    tuple[columnsFilled++] = BDD::TRUE().as_domain();
+	    tuple[columnsFilled++] = BDD::NO_VAR().as_domain();
+	}
+	
         if (end != line.length()) {
             if (!error) {
                 std::stringstream errorMessage;
@@ -187,8 +195,8 @@ protected:
 class ReadFileCSV : public ReadStreamCSV {
 public:
     ReadFileCSV(const SymbolMask& symbolMask, SymbolTable& symbolTable, const IODirectives& ioDirectives,
-            const bool provenance = false)
-            : ReadStreamCSV(fileHandle, symbolMask, symbolTable, ioDirectives, provenance),
+		const bool provenance = false, const bool predicated = false)
+	    : ReadStreamCSV(fileHandle, symbolMask, symbolTable, ioDirectives, provenance, predicated),
               baseName(souffle::baseName(getFileName(ioDirectives))), fileHandle(getFileName(ioDirectives)) {
         if (!ioDirectives.has("intermediate")) {
             if (!fileHandle.is_open()) {
@@ -238,9 +246,9 @@ protected:
 class ReadCinCSVFactory : public ReadStreamFactory {
 public:
     std::unique_ptr<ReadStream> getReader(const SymbolMask& symbolMask, SymbolTable& symbolTable,
-            const IODirectives& ioDirectives, const bool provenance) override {
+					  const IODirectives& ioDirectives, const bool provenance, const bool predicated) override {
         return std::unique_ptr<ReadStreamCSV>(
-                new ReadStreamCSV(std::cin, symbolMask, symbolTable, ioDirectives, provenance));
+	    new ReadStreamCSV(std::cin, symbolMask, symbolTable, ioDirectives, provenance, predicated));
     }
     const std::string& getName() const override {
         static const std::string name = "stdin";
@@ -252,9 +260,9 @@ public:
 class ReadFileCSVFactory : public ReadStreamFactory {
 public:
     std::unique_ptr<ReadStream> getReader(const SymbolMask& symbolMask, SymbolTable& symbolTable,
-            const IODirectives& ioDirectives, const bool provenance) override {
+					  const IODirectives& ioDirectives, const bool provenance, const bool predicated) override {
         return std::unique_ptr<ReadFileCSV>(
-                new ReadFileCSV(symbolMask, symbolTable, ioDirectives, provenance));
+	    new ReadFileCSV(symbolMask, symbolTable, ioDirectives, provenance, predicated));
     }
     const std::string& getName() const override {
         static const std::string name = "file";

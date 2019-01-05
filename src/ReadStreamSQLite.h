@@ -33,7 +33,7 @@ class ReadStreamSQLite : public ReadStream {
 public:
     ReadStreamSQLite(const std::string& dbFilename, const std::string& relationName,
             const SymbolMask& symbolMask, SymbolTable& symbolTable, const bool provenance)
-            : ReadStream(symbolMask, symbolTable, provenance), dbFilename(dbFilename),
+	    : ReadStream(symbolMask, symbolTable, provenance, false), dbFilename(dbFilename),
               relationName(relationName) {
         openDB();
         checkTableExists();
@@ -161,7 +161,8 @@ protected:
 class ReadSQLiteFactory : public ReadStreamFactory {
 public:
     std::unique_ptr<ReadStream> getReader(const SymbolMask& symbolMask, SymbolTable& symbolTable,
-            const IODirectives& ioDirectives, const bool provenance) override {
+					  const IODirectives& ioDirectives, const bool provenance, const bool predicated) override {
+	assert(!predicated);
         std::string dbName = ioDirectives.get("dbname");
         std::string relationName = ioDirectives.getRelationName();
         return std::unique_ptr<ReadStreamSQLite>(

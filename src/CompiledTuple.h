@@ -18,6 +18,7 @@
 #pragma once
 
 #include "RamTypes.h"
+#include "BDD.h"
 
 #include <iostream>
 
@@ -41,7 +42,31 @@ struct Tuple {
     // the stored data
     Domain data[arity];
 
-    // constructores, destructors and assignment are default
+    Tuple() {
+	for (int i = 0; i < arity; i++) {
+	    data[i] = 0;
+	}
+    }
+    Tuple(const Tuple& other)
+	: Tuple() {
+	*this = other;
+    }
+    Tuple(std::initializer_list<Domain> l) {
+	size_t i = 0;
+	for (auto it = l.begin(), end = l.end(); it != end; ++it, ++i) {
+	    data[i] = *it;
+	}
+	for (; i < arity; i++) {
+	    data[i] = 0;
+	}
+    }
+    
+    Tuple& operator=(const Tuple& other) {
+	for (int i = 0; i < arity; i++) {
+	    data[i] = other.data[i];
+	}
+	return *this;
+    }
 
     // provide access to components
     const Domain& operator[](std::size_t index) const {
@@ -92,7 +117,8 @@ struct Tuple {
             out << tuple.data[i];
             out << ",";
         }
-        return out << tuple.data[arity - 1] << "]";
+        out << tuple.data[arity - 1] << "]";
+	return out;
     }
 
     std::string printRaw(std::string& delimiter) {

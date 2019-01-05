@@ -18,6 +18,7 @@
 
 #include "PrecedenceGraph.h"
 #include "AstClause.h"
+#include "AstArgument.h"
 #include "AstRelation.h"
 #include "AstUtils.h"
 #include "AstVisitor.h"
@@ -122,7 +123,67 @@ void RecursiveClauses::run(const AstTranslationUnit& translationUnit) {
 }
 
 void RecursiveClauses::print(std::ostream& os) const {
-    os << recursiveClauses << std::endl;
+    for (auto const& i: recursiveClauses) {
+	std::cout << *i << ", ";
+    }
+}
+
+std::vector<const AstAtom*> getAllAtoms(const AstClause* cl) {
+    std::vector<const AstAtom*> allAtoms;
+    for (const AstAtom* at : cl->getAtoms()) {
+	allAtoms.push_back(at);
+    }
+    for (const AstNegation* neg : cl->getNegations()) {
+	allAtoms.push_back(neg->getAtom());
+    }
+    if (cl->isForall()) {
+	allAtoms.push_back(cl->getForallDomain());
+    }
+    return allAtoms;
+}
+
+std::vector<const AstAtom*> getAllAtomsWithHead(const AstClause* cl) {
+    std::vector<const AstAtom*> allAtoms = getAllAtoms(cl);
+    allAtoms.push_back(cl->getHead());
+    return allAtoms;
+}
+
+std::vector<const AstAggregator*> getAllAggregators(const AstClause *cl) {
+    std::vector<const AstAtom*> allAtoms = getAllAtomsWithHead(cl);
+    std::vector<const AstConstraint*> allConstraints;
+    for (const AstConstraint* ct : cl->getConstraints()) {
+	allConstraints.push_back(ct);
+    }
+
+    std::vector<const AstArgument*> allArgs;
+    for (const AstAtom *at: allAtoms) {
+	for (const AstArgument* arg : at->getArguments()) {
+	    allArgs.push_back(arg);
+	}
+    }
+    for (const AstConstraint *ct: allConstraints) {
+	allArgs.push_back(ct->getLHS());
+	allArgs.push_back(ct->getRHS());
+    }
+
+    std::vector<const AstAggregator*> allAggs;
+    for (const AstArgument *arg: allArgs) {
+	if (const AstAggregator* agg = dynamic_cast<const AstAggregator*>(arg)) {
+	    allAggs.push_back(agg);
+	}
+    }
+    return allAggs;
+}
+
+std::vector<const AstAggregator*> getAllAggregators(const AstRelation *rel) {
+    std::vector<const AstAggregator*> allAggs;
+    for (const AstClause* cl : rel->getClauses()) {
+	std::vector<const AstAggregator*> clAggs = getAllAggregators(cl);
+	for (const AstAggregator* agg: clAggs) {
+	    allAggs.push_back(agg);
+	}
+    }
+    return allAggs;
 }
 
 bool RecursiveClauses::computeIsRecursive(
@@ -136,12 +197,45 @@ bool RecursiveClauses::computeIsRecursive(
     std::vector<const AstRelation*> worklist;
 
     // set up start list
-    for (const AstAtom* cur : clause.getAtoms()) {
-        auto rel = program.getRelation(cur->getName());
-        if (rel == trg) {
-            return true;
-        }
-        worklist.push_back(rel);
+    if (trg->isNonStratifiable()) {
+	for (const AstAtom* cur : getAllAtoms(&clause)) {
+	    auto rel = program.getRelation(cur->getName());
+	    if (rel == trg) {
+		return true;
+	    }
+	    worklist.push_back(rel);
+	}
+    }
+    else {
+	for (const AstAtom* cur : clause.getAtoms()) {
+	    auto rel = program.getRelation(cur->getName());
+	    if (rel == trg) {
+		return true;
+	    }
+	    worklist.push_back(rel);
+	}
+    }
+    if (trg->isNonStratifiable()) {
+	for (const AstAggregator* agg: getAllAggregators(&clause)) {
+	    // Due to the MaterializeAggregationQueriesTransformer
+	    // transform before, there is guaranteed to be a single
+	    // literal here.
+	    for (AstLiteral* l : agg->getBodyLiterals()) {
+		AstAtom *at;
+		AstNegation* neg;
+		if ((at = dynamic_cast<AstAtom*>(l))) {}
+		else if ((neg = dynamic_cast<AstNegation*>(l))) {
+		    at = neg->getAtom();
+		}
+		if (at) {
+		    const AstRelation* rel = program.getRelation(at->getName());
+		    if (rel == trg) {
+			return true;
+		    }
+		    worklist.push_back(rel);
+		}
+	    }
+	}
     }
 
     // process remaining elements
@@ -162,16 +256,50 @@ bool RecursiveClauses::computeIsRecursive(
 
         // check all atoms in the relations
         for (const AstClause* cl : cur->getClauses()) {
-            for (const AstAtom* at : cl->getAtoms()) {
-                auto rel = program.getRelation(at->getName());
-                if (rel == trg) {
-                    return true;
-                }
-                worklist.push_back(rel);
-            }
+	    if (trg->isNonStratifiable()) {
+		for (const AstAtom* at : getAllAtoms(cl)) {
+		    auto rel = program.getRelation(at->getName());
+		    if (rel == trg) {
+			return true;
+		    }
+		    worklist.push_back(rel);
+		}
+	    }
+	    else {
+		for (const AstAtom* at : cl->getAtoms()) {
+		    auto rel = program.getRelation(at->getName());
+		    if (rel == trg) {
+			return true;
+		    }
+		    worklist.push_back(rel);
+		}
+	    }
         }
-    }
 
+	// check all aggregators in the relations
+	if (trg->isNonStratifiable()) {
+	    for (const AstAggregator* agg : getAllAggregators(cur)) {
+		// Due to the MaterializeAggregationQueriesTransformer
+		// transform before, there is guaranteed to be a single
+		// literal here.
+		for (AstLiteral* l: agg->getBodyLiterals()) {
+		    AstAtom *at;
+		    AstNegation* neg;
+		    if ((at = dynamic_cast<AstAtom*>(l))) {}
+		    else if ((neg = dynamic_cast<AstNegation*>(l))) {
+			at = neg->getAtom();
+		    }
+		    if (at) {
+			const AstRelation* rel = program.getRelation(at->getName());
+			if (rel == trg) {
+			    return true;
+			}
+			worklist.push_back(rel);
+		    }
+		}
+	    }
+	}
+    }
     // no cycles found
     return false;
 }

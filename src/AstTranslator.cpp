@@ -619,6 +619,9 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     } else {
         std::unique_ptr<RamProject> project =
                 std::unique_ptr<RamProject>(new RamProject(getRelation(&head), level));
+	if (clause.isHypothetical()) {
+	    project->setHypothetical(true);
+	}
 
         for (AstArgument* arg : head.getArguments()) {
             project->addArg(translateValue(arg, valueIndex));
@@ -676,6 +679,9 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
             case AstAggregator::sum:
                 fun = RamAggregate::SUM;
                 break;
+            case AstAggregator::product:
+                fun = RamAggregate::PRODUCT;
+                break;
         }
 
         // translate target expression
@@ -706,7 +712,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     if (clause.isForall()) {
 	const AstAtom* domAtom = clause.getForallDomain();
 	forall = new RamForall(getRelation(domAtom), std::move(op));
-	
+
 	// Set up args.
 	for (size_t i = 0; i < domAtom->getArity(); i++) {
 	    forall->addArg(translateValue(domAtom->getArgument(i), valueIndex));
@@ -727,6 +733,70 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
 	    assert(found && "Unknown domain variable in forall");
 	}
 	op = std::unique_ptr<RamOperation>(forall);
+    }
+
+    // If this is a duplicate-finding rule, verify it is in the (only)
+    // supported form, i.e. one relation and one duplicate clause with
+    // all given-cols before all dup-cols, then generate the whole op
+    // and return.
+    if (clause.getDuplicates().size() > 0) {
+	assert(clause.getDuplicates().size() == 1);
+	assert(clause.getConstraints().size() == 0);
+	assert(clause.getNegations().size() == 0);
+	assert(clause.getAtoms().size() == 1);
+
+	auto* atom = clause.getAtoms()[0];
+	auto* dup = clause.getDuplicates()[0];
+
+	std::unique_ptr<RamRelation> relation = getRelation(atom);
+	assert(!relation->isHashset());  // must be an ordered relation
+
+	// Ensure all args to the relation are either simple variables
+	// or wildcards.
+	auto args = atom->getArguments();
+	for (size_t i = 0; i < args.size(); i++) {
+	    if (!args[i]) {
+		continue;
+	    }
+	    assert(dynamic_cast<AstUnnamedVariable*>(args[i]) ||
+		   dynamic_cast<AstVariable*>(args[i]));
+	}
+
+	// Get all given-cols and dup-cols
+	std::vector<int> givenCols;
+	std::vector<int> dupCols;
+	for (auto* var : dup->getGivenVars()) {
+	    auto loc = valueIndex.getDefinitionPoint(*var);
+	    assert(loc.level == 0);
+	    givenCols.push_back(loc.component);
+	}
+	for (auto* var : dup->getDupVars()) {
+	    auto loc = valueIndex.getDefinitionPoint(*var);
+	    assert(loc.level == 0);
+	    dupCols.push_back(loc.component);
+	}
+
+	// Ensure that all dup-cols are to the right of all given-cols
+	int max_given = 0;
+	for (auto col : givenCols) {
+	    if (col > max_given) {
+		max_given = col;
+	    }
+	}
+	for (auto col : dupCols) {
+	    assert(col > max_given);
+	}
+
+	// Create the FindDup op and return.
+	RamFindDuplicate* finddup = new RamFindDuplicate(std::move(op), std::move(relation));
+	for (auto col : givenCols) {
+	    finddup->addGivenVar(col);
+	}
+	for (auto col : dupCols) {
+	    finddup->addDupVar(col);
+	}
+	op = std::unique_ptr<RamOperation>(finddup);
+	goto final_stmt;
     }
 
     // build operation bottom-up
@@ -765,6 +835,10 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
                             std::unique_ptr<RamValue>(
                                     new RamElementAccess(loc.level, loc.component, loc.name)))));
                 }
+	    }
+
+	    if (atom->isHypFilter()) {
+		dynamic_cast<RamScan*>(op.get())->setHypFilter(true);
 	    }
 
             // TODO: support constants in nested records!
@@ -854,18 +928,20 @@ std::unique_ptr<RamStatement> AstTranslator::translateClause(const AstClause& cl
     }
 
     /* generate the final RAM Insert statement */
+final_stmt:
     std::unique_ptr<RamStatement> s = std::make_unique<RamInsert>(clause, std::move(op));
     if (clause.isForall()) {
 	size_t arity = clause.getForallDomain()->getArity();
 	size_t valArity = clause.getForallVars().size();
 	size_t keyArity = arity - valArity;
-	
+
 	// wrap the insert in a forall-context (indicates the scope of tuple accumulation).
 	s = std::make_unique<RamForallContext>(std::move(s), arity,
 					       keyArity, valArity,
 					       forall->getKeyColumns(),
 					       forall->getDomVarColumns());
     }
+
     return s;
 }
 
@@ -1124,7 +1200,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		appendStmt(postamble, std::make_unique<RamDrop>(std::unique_ptr<RamRelation>(forallAugmentedNewRel->clone())));
 		appendStmt(loopSeq, std::make_unique<RamClear>(std::unique_ptr<RamRelation>(forallNewRel->clone())));
 		appendStmt(loopSeq, std::make_unique<RamClear>(std::unique_ptr<RamRelation>(forallAugmentedNewRel->clone())));
-		
+
 		// Rule head for all delta-update rules below:
 		// accumulate into temporary/intermediate relation.
 		forallNewHead.reset(cl->getForallDomain()->clone());
@@ -1160,6 +1236,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		expandRule->addToBody(std::unique_ptr<AstAtom>(cl->getForallDomain()->clone()));
 		expandRule->clearForall();
 		expandRule->setGenerated();
+		expandRule->setHypothetical(false);
                 nameUnnamedVariables(expandRule.get());
 
 #if 0
@@ -1167,7 +1244,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		expandRule->print(std::cerr);
 		std::cerr << "\n";
 #endif
-		
+
 		forall1Stmts.push_back(translateClause(*expandRule, program, &typeEnv, 0, false, rel->isHashset()));
 
 		// Create a rule that implements only the forall
@@ -1189,9 +1266,17 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		forall2Stmts.push_back(translateClause(*forallRule, program, &typeEnv, 0, false, rel->isHashset()));
 	    }
 
+	    // clear hypothetical flag on initial clause if forall.
+	    if (forall) {
+		cl->setHypothetical(false);
+	    }
+
             // each recursive rule results in several operations
             int version = 0;
             const auto& atoms = cl->getAtoms();
+            const auto& negations = cl->getNegations();
+
+	    bool noSCCAtomFound = true;
             for (size_t j = 0; j < atoms.size(); ++j) {
                 const AstAtom* atom = atoms[j];
                 const AstRelation* atomRelation = getAtomRelation(atom, program);
@@ -1201,6 +1286,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
                     continue;
                 }
 
+		noSCCAtomFound = false;
                 // modify the processed rule to use relDelta and write to relNew
                 std::unique_ptr<AstClause> r1(cl->clone());
 		if (!forall) {
@@ -1212,8 +1298,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 		}
 		r1->getAtoms()[j]->setName(relDelta[atomRelation]->getName());
 		r1->addToBody(std::unique_ptr<AstLiteral>(
-				  new AstNegation(std::unique_ptr<AstAtom>(cl->getHead()->clone()))));
-
+		    new AstNegation(std::unique_ptr<AstAtom>(cl->getHead()->clone()))));
                 // replace wildcards with variables (reduces indices when wildcards are used in recursive
                 // atoms)
                 nameUnnamedVariables(r1.get());
@@ -1235,7 +1320,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 
 		std::unique_ptr<RamStatement> stmt(
 		    translateClause(*r1, program, &typeEnv, version, false, rel->isHashset()));
-		
+
 		// add debug info
 		std::ostringstream ds;
 		ds << toString(*cl) << "\nin file ";
@@ -1246,14 +1331,54 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 
                 // increment version counter
                 version++;
-	    }	
+	    }
+
+	    if (noSCCAtomFound && rel->isNonStratifiable()) {
+                // modify the processed rule to use relDelta and write to relNew
+                std::unique_ptr<AstClause> r1(cl->clone());
+		if (!forall) {
+		    r1->getHead()->setName(relNew[rel]->getName());
+		} else {
+		    r1->clearHead();
+		    r1->setHead(std::unique_ptr<AstAtom>(forallNewHead->clone()));
+		    r1->clearForall();
+		}
+		r1->addToBody(std::unique_ptr<AstLiteral>(
+		    new AstNegation(std::unique_ptr<AstAtom>(cl->getHead()->clone()))));
+                // replace wildcards with variables (reduces indices when wildcards are used in recursive
+                // atoms)
+                nameUnnamedVariables(r1.get());
+
+                // reduce R to P ...
+
+#if 0
+		std::cerr << " -- expanded clause: --\n";
+		r1->print(std::cerr);
+		std::cerr << "\n";
+#endif
+
+		std::unique_ptr<RamStatement> stmt(
+		    translateClause(*r1, program, &typeEnv, version, false, rel->isHashset()));
+
+		// add debug info
+		std::ostringstream ds;
+		ds << toString(*cl) << "\nin file ";
+		ds << cl->getSrcLoc();
+		stmt = std::make_unique<RamDebugInfo>(std::move(stmt), ds.str());
+
+		stmts.push_back(std::move(stmt));
+
+                // increment version counter
+                version++;
+	    }
+
             assert(cl->getExecutionPlan() == nullptr || version > cl->getExecutionPlan()->getMaxVersion());
         }
     }
 
     // -- now actually build the fixpoint loop.
 
-    
+
     // Three sections, each with all statements unordered. nulls
     // separate sections. (Second and third are used only by
     // forall statements.)
@@ -1277,11 +1402,11 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
 	    }
 	    continue;
 	}
-	
+
         // add to loop body
         parallel->add(std::move(rule));
     }
-	
+
 
     /* construct exit conditions for odd and even iteration */
     auto addCondition = [](std::unique_ptr<RamCondition>& cond, std::unique_ptr<RamCondition> clause) {
@@ -1294,7 +1419,6 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
         addCondition(exitCond, std::unique_ptr<RamCondition>(
                                        new RamEmpty(std::unique_ptr<RamRelation>(relNew[rel]->clone()))));
     }
-
     /* construct fixpoint loop  */
     std::unique_ptr<RamStatement> res;
     if (preamble) appendStmt(res, std::move(preamble));
@@ -1305,6 +1429,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
     if (postamble) {
         appendStmt(res, std::move(postamble));
     }
+
     if (res) return res;
 
     assert(false && "Not Implemented");

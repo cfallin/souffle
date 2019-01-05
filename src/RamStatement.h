@@ -459,6 +459,11 @@ public:
         operation = map(std::move(operation));
     }
 
+    /** Is this a hypothetical insert? */
+    bool isHypothetical() const {
+	return clause->isHypothetical();
+    }
+
 protected:
     /** Check equality */
     bool equal(const RamNode& node) const override {
@@ -542,7 +547,7 @@ protected:
         return *nested.get() == *other.nested.get();
     }    
 };
-
+    
 /**
  * Sequence of RAM statements
  *

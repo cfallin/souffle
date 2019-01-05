@@ -42,9 +42,10 @@ protected:
 class WriteFileCSV : public WriteStreamCSV, public WriteStream {
 public:
     WriteFileCSV(const SymbolMask& symbolMask, const SymbolTable& symbolTable,
-            const IODirectives& ioDirectives, const bool provenance = false)
+		 const IODirectives& ioDirectives, const bool provenance = false,
+		 const bool hypotheses = false)
             : WriteStream(symbolMask, symbolTable, provenance), delimiter(getDelimiter(ioDirectives)),
-              file(ioDirectives.getFileName()) {
+              file(ioDirectives.getFileName()), hypotheses(hypotheses) {
         if (ioDirectives.has("headers") && ioDirectives.get("headers") == "true") {
             file << ioDirectives.get("attributeNames") << std::endl;
         }
@@ -77,12 +78,16 @@ protected:
                 file << tuple[col];
             }
         }
+	if (hypotheses) {
+	    file << delimiter << tuple[arity] << delimiter << tuple[arity + 1];
+	}
         file << "\n";
     }
 
 protected:
     const std::string delimiter;
     std::ofstream file;
+    bool hypotheses;
 };
 
 #ifdef USE_LIBZ
@@ -185,13 +190,13 @@ protected:
 class WriteFileCSVFactory : public WriteStreamFactory {
 public:
     std::unique_ptr<WriteStream> getWriter(const SymbolMask& symbolMask, const SymbolTable& symbolTable,
-            const IODirectives& ioDirectives, const bool provenance) override {
+					   const IODirectives& ioDirectives, const bool provenance, const bool hyp) override {
 #ifdef USE_LIBZ
         if (ioDirectives.has("compress")) {
             return std::make_unique<WriteGZipFileCSV>(symbolMask, symbolTable, ioDirectives, provenance);
         }
 #endif
-        return std::make_unique<WriteFileCSV>(symbolMask, symbolTable, ioDirectives, provenance);
+        return std::make_unique<WriteFileCSV>(symbolMask, symbolTable, ioDirectives, provenance, hyp);
     }
     const std::string& getName() const override {
         static const std::string name = "file";
@@ -203,7 +208,7 @@ public:
 class WriteCoutCSVFactory : public WriteStreamFactory {
 public:
     std::unique_ptr<WriteStream> getWriter(const SymbolMask& symbolMask, const SymbolTable& symbolTable,
-            const IODirectives& ioDirectives, const bool provenance) override {
+					   const IODirectives& ioDirectives, const bool provenance, const bool hyp) override {
         return std::make_unique<WriteCoutCSV>(symbolMask, symbolTable, ioDirectives, provenance);
     }
     const std::string& getName() const override {

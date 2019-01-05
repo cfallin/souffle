@@ -66,8 +66,11 @@ protected:
     /** Arguments of the atom */
     std::vector<std::unique_ptr<AstArgument>> arguments;
 
+    /** When predicated/hypothetical: do we only accept universally-true tuples? */
+    bool hypFilter;
+
 public:
-    AstAtom(const AstRelationIdentifier& name = AstRelationIdentifier()) : name(name) {}
+    AstAtom(const AstRelationIdentifier& name = AstRelationIdentifier()) : name(name), hypFilter(false) {}
 
     ~AstAtom() override = default;
 
@@ -116,8 +119,20 @@ public:
         return arguments.size();
     }
 
+    void setHypFilter(bool value) {
+	hypFilter = value;
+    }
+
+    bool isHypFilter() const {
+	return hypFilter;
+    }
+
     /** Output to a given stream */
     void print(std::ostream& os) const override {
+	if  (hypFilter) {
+	    os << "+";
+	}
+
         os << getName() << "(";
 
         for (size_t i = 0; i < arguments.size(); ++i) {
@@ -140,6 +155,7 @@ public:
         for (const auto& cur : arguments) {
             res->arguments.push_back(std::unique_ptr<AstArgument>(cur->clone()));
         }
+	res->hypFilter = hypFilter;
         return res;
     }
 
@@ -164,7 +180,8 @@ protected:
     bool equal(const AstNode& node) const override {
         assert(dynamic_cast<const AstAtom*>(&node));
         const AstAtom& other = static_cast<const AstAtom&>(node);
-        return name == other.name && equal_targets(arguments, other.arguments);
+        return name == other.name && equal_targets(arguments, other.arguments) &&
+	    hypFilter == other.hypFilter;
     }
 };
 
@@ -320,6 +337,91 @@ protected:
         assert(dynamic_cast<const AstConstraint*>(&node));
         const AstConstraint& other = static_cast<const AstConstraint&>(node);
         return operation == other.operation && *lhs == *other.lhs && *rhs == *other.rhs;
+    }
+};
+
+/**
+ * Subclass of Literal that represents a "duplicate" clause,
+ * e.g., duplicate (x) given (y, z).
+ */
+class AstDuplicate : public AstLiteral {
+protected:
+    std::vector<std::unique_ptr<AstVariable>> dupVars;
+    std::vector<std::unique_ptr<AstVariable>> givenVars;
+
+public:
+    AstDuplicate() {}
+
+    ~AstDuplicate() override = default;
+
+    /** This kind of literal has no nested atom */
+    const AstAtom* getAtom() const override {
+        return nullptr;
+    }
+
+    std::vector<AstVariable*> getDupVars() const {
+	return toPtrVector(dupVars);
+    }
+
+    std::vector<AstVariable*> getGivenVars() const {
+	return toPtrVector(givenVars);
+    }
+
+    void addDupVar(std::unique_ptr<AstVariable> var) {
+	dupVars.push_back(std::move(var));
+    }
+
+    void addGivenVar(std::unique_ptr<AstVariable> var) {
+	givenVars.push_back(std::move(var));
+    }
+
+    /** Output the constraint to a given stream */
+    void print(std::ostream& os) const override {
+	os << "DUPLICATE (" << join(toPtrVector(dupVars), ", ")
+	   << ") GIVEN (" << join(toPtrVector(givenVars), ", ") << ")";
+    }
+
+    /** Creates a clone if this AST sub-structure */
+    AstDuplicate* clone() const override {
+        AstDuplicate* res = new AstDuplicate();
+	for (const auto& var : dupVars) {
+	    res->addDupVar(std::unique_ptr<AstVariable>(var->clone()));
+	}
+	for (const auto& var : givenVars) {
+	    res->addGivenVar(std::unique_ptr<AstVariable>(var->clone()));
+	}
+        res->setSrcLoc(getSrcLoc());
+        return res;
+    }
+
+    /** Mutates this node */
+    void apply(const AstNodeMapper& map) override {
+	for (auto& var : dupVars) {
+	    var = map(std::move(var));
+	}
+	for (auto& var : givenVars) {
+	    var = map(std::move(var));
+	}
+    }
+
+    /** Obtains a list of all embedded child nodes */
+    std::vector<const AstNode*> getChildNodes() const override {
+	std::vector<const AstNode*> ret;
+	for (const auto& var : dupVars) {
+	    ret.push_back(var.get());
+	}
+	for (const auto& var : givenVars) {
+	    ret.push_back(var.get());
+	}
+	return ret;
+    }
+
+protected:
+    /** Implements the node comparison for this node type */
+    bool equal(const AstNode& node) const override {
+        assert(dynamic_cast<const AstDuplicate*>(&node));
+        const AstDuplicate& other = static_cast<const AstDuplicate&>(node);
+	return equal_targets(dupVars, other.dupVars) && equal_targets(givenVars, other.givenVars);
     }
 };
 

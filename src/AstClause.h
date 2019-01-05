@@ -258,6 +258,9 @@ protected:
     /** The constraints in the body of this clause */
     std::vector<std::unique_ptr<AstConstraint>> constraints;
 
+    /** The "find duplicate" constraints/operators of this clause */
+    std::vector<std::unique_ptr<AstDuplicate>> duplicates;
+
     /** The forall domain of this clause, if a forall clause */
     std::unique_ptr<AstAtom> forallDomain;
     /** The forall variables of this clause, if a forall clause */
@@ -275,10 +278,14 @@ protected:
     /** Stores a unique number for each clause in a relation */
     size_t clauseNum;
 
+    /** Determines whether this clause adds a hypothetical to
+     * generated tuples' predicates */
+    bool hypothetical;
+
 public:
     /** Construct an empty clause with empty list of literals and
         its head set to NULL */
-    AstClause() : head(nullptr), fixedPlan(false), plan(nullptr), generated(false) {}
+    AstClause() : head(nullptr), fixedPlan(false), plan(nullptr), generated(false), hypothetical(false) {}
 
     ~AstClause() override = default;
 
@@ -296,6 +303,7 @@ public:
 	atoms.clear();
 	negations.clear();
 	constraints.clear();
+	duplicates.clear();
     }
 
     /** Set the head of clause to @p h */
@@ -308,7 +316,7 @@ public:
 
     /** Return the number of elements in the body of the Clause */
     size_t getBodySize() const {
-        return atoms.size() + negations.size() + constraints.size();
+        return atoms.size() + negations.size() + constraints.size() + duplicates.size();
     }
 
     /** Return the i-th Literal in body of the clause */
@@ -337,6 +345,11 @@ public:
     /** Obtains a list of constraints */
     std::vector<AstConstraint*> getConstraints() const {
         return toPtrVector(constraints);
+    }
+
+    /** Obtains a list of the duplicate operators */
+    std::vector<AstDuplicate*> getDuplicates() const {
+	return toPtrVector(duplicates);
     }
 
     /** Return @p true if the clause is a rule */
@@ -417,6 +430,16 @@ public:
         clauseNum = num;
     }
 
+    /** Determines whether this clause adds a hypothetical to generated tuples. */
+    bool isHypothetical() const {
+	return hypothetical;
+    }
+
+    /** Sets whether this clause adds a hypothetical to generated tuples. */
+    void setHypothetical(bool h) {
+	hypothetical = h;
+    }
+
     /** Print this clause to a given stream */
     void print(std::ostream& os) const override;
 
@@ -437,6 +460,9 @@ public:
         for (const auto& cur : constraints) {
             res->constraints.push_back(std::unique_ptr<AstConstraint>(cur->clone()));
         }
+	for (const auto& cur : duplicates) {
+	    res->duplicates.push_back(std::unique_ptr<AstDuplicate>(cur->clone()));
+	}
         res->fixedPlan = fixedPlan;
         res->generated = generated;
 	if (forallDomain) {
@@ -445,6 +471,7 @@ public:
 	for (const auto& var : forallVars) {
 	    res->forallVars.push_back(std::unique_ptr<AstVariable>(var->clone()));
 	}
+	res->hypothetical = hypothetical;
         return res;
     }
 
@@ -460,6 +487,9 @@ public:
         for (auto& lit : constraints) {
             lit = map(std::move(lit));
         }
+	for (auto& lit : duplicates) {
+	    lit = map(std::move(lit));
+	}
 	if (forallDomain) {
 	    forallDomain = map(std::move(forallDomain));
 	}
@@ -483,6 +513,7 @@ public:
 	for (const auto& var : forallVars) {
 	    clone->forallVars.push_back(std::unique_ptr<AstVariable>(var->clone()));
 	}
+	clone->hypothetical = hypothetical;
         return clone;
     }
 
@@ -498,6 +529,9 @@ public:
         for (auto& cur : constraints) {
             res.push_back(cur.get());
         }
+	for (auto& cur : duplicates) {
+	    res.push_back(cur.get());
+	}
 	if (forallDomain) {
 	    res.push_back(forallDomain.get());
 	}
@@ -513,9 +547,13 @@ protected:
         assert(dynamic_cast<const AstClause*>(&node));
         const AstClause& other = static_cast<const AstClause&>(node);
         return *head == *other.head && equal_targets(atoms, other.atoms) &&
-               equal_targets(negations, other.negations) && equal_targets(constraints, other.constraints) &&
-	    ((!forallDomain && !other.forallDomain) || (*forallDomain.get() == *other.forallDomain.get())) &&
-	    equal_targets(forallVars, other.forallVars);
+               equal_targets(negations, other.negations) &&
+	       equal_targets(constraints, other.constraints) &&
+	       equal_targets(duplicates, other.duplicates) &&
+	       ((!forallDomain && !other.forallDomain) ||
+		(*forallDomain.get() == *other.forallDomain.get())) &&
+	       equal_targets(forallVars, other.forallVars) &&
+	       hypothetical == other.hypothetical;
     }
 };
 

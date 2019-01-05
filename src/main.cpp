@@ -179,6 +179,10 @@ int main(int argc, char** argv) {
                                     "binary executable (without executing it)."},
                             {"profile", 'p', "FILE", "", false,
                                     "Enable profiling, and write profile data to <FILE>."},
+			    {"predicated", 'q', "", "", false,
+			            "Enable predicated execution (Predicated Datalog)."},
+			    {"recorddump", 'x', "", "", false,
+			            "Dump record table and symbol table."},
                             {"bddbddb", 'b', "FILE", "", false, "Convert input into bddbddb file format."},
                             {"debug-report", 'r', "FILE", "", false, "Write HTML debug report to <FILE>."},
 #ifdef USE_PROVENANCE
@@ -474,7 +478,9 @@ int main(int argc, char** argv) {
         std::unique_ptr<Interpreter> interpreter = (Global::config().has("auto-schedule"))
                                                            ? std::make_unique<Interpreter>(ScheduledExecution)
                                                            : std::make_unique<Interpreter>(DirectExecution);
-        std::unique_ptr<InterpreterEnvironment> env = interpreter->execute(*ramTranslationUnit);
+	bool enableHypotheses = Global::config().has("predicated");
+        std::unique_ptr<InterpreterEnvironment> env = interpreter->execute(
+	    *ramTranslationUnit, enableHypotheses);
 
 #ifdef USE_PROVENANCE
         // only run explain interface if interpreted

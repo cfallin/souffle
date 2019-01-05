@@ -60,6 +60,8 @@ public:
 
     static RuleBody atom(AstAtom* atom);
 
+    static RuleBody duplicate(AstDuplicate* dup);
+
     static RuleBody constraint(AstConstraint* constraint);
 
     friend std::ostream& operator<<(std::ostream& out, const RuleBody& body);
