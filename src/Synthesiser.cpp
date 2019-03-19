@@ -1623,6 +1623,8 @@ void Synthesiser::generateCode(
     //                      Code Generation
     // ---------------------------------------------------------------
 
+    bool predicated = Global::config().has("predicated");
+
     std::string classname = "Sf_" + id;
 
     // generate C++ program
@@ -1635,34 +1637,16 @@ void Synthesiser::generateCode(
     os << "namespace souffle {\n";
     os << "using namespace ram;\n";
 
-    // print wrapper for regex
-    os << "class " << classname << " : public SouffleProgram {\n";
-    os << "private:\n";
-    os << "static inline bool regex_wrapper(const char *pattern, const char *text) {\n";
-    os << "   bool result = false; \n";
-    os << "   try { result = std::regex_match(text, std::regex(pattern)); } catch(...) { \n";
-    os << "     std::cerr << \"warning: wrong pattern provided for match(\\\"\" << pattern << \"\\\",\\\"\" "
-          "<< text << \"\\\")\\n\";\n}\n";
-    os << "   return result;\n";
-    os << "}\n";
-    os << "static inline std::string substr_wrapper(const char *str, size_t idx, size_t len) {\n";
-    os << "   std::string sub_str, result; \n";
-    os << "   try { result = std::string(str).substr(idx,len); } catch(...) { \n";
-    os << "     std::cerr << \"warning: wrong index position provided by substr(\\\"\";\n";
-    os << "     std::cerr << str << \"\\\",\" << (int32_t)idx << \",\" << (int32_t)len << \") "
-          "functor.\\n\";\n";
-    os << "   } return result;\n";
-    os << "}\n";
-
-    if (Global::config().has("profile")) {
-        os << "std::string profiling_fname;\n";
-    }
+    // N.B.: we make the symtab, BDD, and relations global vars so
+    // that modifying the set of relations does not change the class
+    // layout and invalidate separate compilation of all RAM
+    // statements, one per .cpp file. This is an important
+    // optimization for compile time. In effect, the linker patches up
+    // what would have been class-layout offsets with global variable
+    // addresses instead.
 
     // declare symbol table
-    os << "public:\n";
     os << "SymbolTable symTable;\n";
-
-    bool predicated = Global::config().has("predicated");
 
     // declare predicate table
     if (predicated) {
@@ -1670,8 +1654,6 @@ void Synthesiser::generateCode(
     }
 
     // print relation definitions
-    std::string initCons;      // initialization of constructor
-    std::string deleteForNew;  // matching deletes for each new, used in the destructor
     std::string registerRel;   // registration of relations
     int relCtr = 0;
     std::string tempType;  // string to hold the type of the temporary relations
@@ -1696,22 +1678,8 @@ void Synthesiser::generateCode(
 
         // defining table
         os << "// -- Table: " << raw_name << "\n";
-        os << type << "* " << name << ";\n";
-        if (initCons.size() > 0) {
-            initCons += ",\n";
-        }
-        initCons += name + "(new " + type + "())";
-        deleteForNew += "delete " + name + ";\n";
+        os << type << "* " << name << " = new " + type + "();\n";
         if ((rel.isInput() || rel.isComputed() || Global::config().has("provenance")) && !rel.isTemp()) {
-            os << "souffle::RelationWrapper<";
-            os << relCtr++ << ",";
-            os << type << ",";
-            os << "Tuple<RamDomain," << physArity << ">,";
-            os << physArity << ",";
-            os << (rel.isInput() ? "true" : "false") << ",";
-            os << (rel.isComputed() ? "true" : "false");
-            os << "> wrapper_" << name << ";\n";
-
             // construct types
             std::string tupleType = "std::array<const char *," + std::to_string(physArity) + ">{";
             std::string tupleName = "std::array<const char *," + std::to_string(physArity) + ">{";
@@ -1729,13 +1697,45 @@ void Synthesiser::generateCode(
             }
             tupleType += "}";
             tupleName += "}";
+	    
+            os << "souffle::RelationWrapper<";
+            os << relCtr++ << ",";
+            os << type << ",";
+            os << "Tuple<RamDomain," << physArity << ">,";
+            os << physArity << ",";
+            os << (rel.isInput() ? "true" : "false") << ",";
+            os << (rel.isComputed() ? "true" : "false");
+            os << "> wrapper_" << name << "(*" << name << ", symTable, \"" << raw_name << "\"," <<
+		tupleType << ", " << tupleName << ");\n";
 
-            initCons += ",\nwrapper_" + name + "(" + "*" + name + ",symTable,\"" + raw_name + "\"," +
-                        tupleType + "," + tupleName + ")";
             registerRel += "addRelation(\"" + raw_name + "\",&wrapper_" + name + "," +
                            std::to_string(rel.isInput()) + "," + std::to_string(rel.isOutput()) + ");\n";
         }
     });
+
+
+    // print wrapper for regex
+    os << "class " << classname << " : public SouffleProgram {\n";
+    os << "private:\n";
+    os << "static inline bool regex_wrapper(const char *pattern, const char *text) {\n";
+    os << "   bool result = false; \n";
+    os << "   try { result = std::regex_match(text, std::regex(pattern)); } catch(...) { \n";
+    os << "     std::cerr << \"warning: wrong pattern provided for match(\\\"\" << pattern << \"\\\",\\\"\" "
+          "<< text << \"\\\")\\n\";\n}\n";
+    os << "   return result;\n";
+    os << "}\n";
+    os << "static inline std::string substr_wrapper(const char *str, size_t idx, size_t len) {\n";
+    os << "   std::string sub_str, result; \n";
+    os << "   try { result = std::string(str).substr(idx,len); } catch(...) { \n";
+    os << "     std::cerr << \"warning: wrong index position provided by substr(\\\"\";\n";
+    os << "     std::cerr << str << \"\\\",\" << (int32_t)idx << \",\" << (int32_t)len << \") "
+          "functor.\\n\";\n";
+    os << "   } return result;\n";
+    os << "}\n";
+
+    if (Global::config().has("profile")) {
+        os << "std::string profiling_fname;\n";
+    }
 
     os << "public:\n";
 
@@ -1744,14 +1744,8 @@ void Synthesiser::generateCode(
     os << classname;
     if (Global::config().has("profile")) {
         os << "(std::string pf=\"profile.log\", std::string inputDirectory = \".\") : profiling_fname(pf)";
-        if (initCons.size() > 0) {
-            os << ",\n" << initCons;
-        }
     } else {
         os << "(std::string inputDirectory = \".\")";
-        if (initCons.size() > 0) {
-            os << " : " << initCons;
-        }
     }
     os << "{\n";
     os << registerRel;
@@ -1819,7 +1813,6 @@ void Synthesiser::generateCode(
     // -- destructor --
 
     os << "~" << classname << "() {\n";
-    os << deleteForNew;
     os << "}\n";
 
     // -- run function --
@@ -2051,8 +2044,7 @@ void Synthesiser::generateCode(
 
     // hidden hooks
     os << "SouffleProgram *newInstance_" << id << "(){return new " << classname << ";}\n";
-    os << "SymbolTable *getST_" << id << "(SouffleProgram *p){return &reinterpret_cast<" << classname
-       << "*>(p)->symTable;}\n";
+    os << "SymbolTable *getST_" << id << "(SouffleProgram *p){return &symTable;}\n";
 
     os << "#ifdef __EMBEDDED_SOUFFLE__\n";
     os << "class factory_" << classname << ": public souffle::ProgramFactory {\n";
