@@ -10,7 +10,7 @@
 # script that compiles a generated C++ program and executes it
 #
 
-echo "Souffle-compile $@"
+echo "souffle-compile $@"
 
 # Show usage
 usage() {
@@ -108,21 +108,51 @@ test "$MAINFILE" != "$exe"
 error "source file is not a .cpp file: '$MAINFILE'" $?
 
 # Ensure binary is compiled to same directory as cpp file
-cd "$(dirname $MAINFILE)"
+cd "$(dirname $MAINFILE)"/..
 dir="$PWD"
 cd "$OLDPWD"
 
 # Compile
 rm -f $dir/$exe
 
+# Touch object files that already exist: because names are based on
+# content-hashes, if the file successfully compiled, it must be
+# up-to-date (no .cpp file will change once on disk under that name).
+
+src_dir=`dirname $MAINFILE`
+
 OBJS=""
 for file in $FILES; do
     BASE=`basename $file .cpp`
-    OBJ=$dir/$BASE.o
+    OBJ=$BASE.o
     OBJS="$OBJS $OBJ"
-    if [ ! -f $OBJ ]; then
-	cmd $CXX $CXXFLAGS $CPPFLAGS -c -o $OBJ $file -I$HEADER_DIR $OMP_FLAG -w
+    if [ -f $src_dir/$OBJ ]; then
+	touch $src_dir/$OBJ
     fi
 done
 
-cmd $CXX $CXXFLAGS $CPPFLAGS -o$dir/$exe $OBJS $LIBS $OMP_FLAG $LDFLAGS
+# Now generate a Makefile to allow for a parallel build.
+
+cat >$src_dir/Makefile <<EOF
+CXX := @CXX@
+CXXFLAGS := @CXXFLAGS@ -I $HEADER_DIR $OMP_FLAG -w
+CPPFLAGS := @CPPFLAGS@
+LDFLAGS := @LDFLAGS@
+LIBS := @LIBS@
+OMP_FLAG := @OPENMP_CFLAGS@
+
+$exe: $OBJS
+	\$(CXX) \$(CXXFLAGS) \$(CPPFLAGS) -o \$@ \$^ \$(LIBS) \$(OMP_FLAG| \$(LD_FLAGS)
+
+EOF
+
+CORES=1
+if [ -f /proc/cpuinfo ]; then
+    CORES=`grep -e "^processor" /proc/cpuinfo | wc -l`
+fi
+
+make -C $src_dir -j$CORES
+
+if [ "$src_dir" != "$dir" ]; then
+    cp $src_dir/$exe $dir/$exe
+fi

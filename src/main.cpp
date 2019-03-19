@@ -532,8 +532,14 @@ int main(int argc, char** argv) {
                 baseFilename = tempFile();
             }
 
+	    std::string dir_name = baseFilename + "_src/";
+	    std::string mkdir_cmd = "mkdir -p " + dir_name;
+	    if (system(mkdir_cmd.c_str()) != 0) {
+		throw std::runtime_error(std::string("Could not create directory: ") + dir_name);
+	    }
+
             std::string baseIdentifier = identifier(simpleName(baseFilename));
-            std::string sourceFilename = baseFilename + ".cpp";
+            std::string sourceFilename = dir_name + baseFilename + ".cpp";
 
             std::ofstream os(sourceFilename);
             auto extra_files = synthesiser->generateCode(*ramTranslationUnit, os, baseIdentifier);
@@ -541,11 +547,6 @@ int main(int argc, char** argv) {
 
 	    std::vector<std::string> extra_filenames;
 	    if (!extra_files.empty()) {
-		std::string dir_name = baseFilename + "_parts/";
-		std::string mkdir_cmd = "mkdir -p " + dir_name;
-		if (system(mkdir_cmd.c_str()) != 0) {
-		    throw std::runtime_error(std::string("Could not create directory: ") + dir_name);
-		}
 		for (const auto& p : extra_files) {
 		    const std::string extra_filename = dir_name + p.first;
 		    std::ofstream os(extra_filename);
