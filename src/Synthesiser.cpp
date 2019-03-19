@@ -42,6 +42,7 @@
 #include <sstream>
 #include <utility>
 
+#include <assert.h>
 #include <unistd.h>
 
 #ifdef _OPENMP
@@ -243,6 +244,10 @@ std::set<RamRelation> getReferencedRelations(const RamOperation& op) {
     return res;
 }
 
+class RelationDeclEmitter : public RamVisitor<void> {
+
+};
+
 class CodeEmitter : public RamVisitor<void, std::ostream&> {
 // macros to add comments to generated code for debugging
 #ifndef PRINT_BEGIN_COMMENT
@@ -260,7 +265,9 @@ class CodeEmitter : public RamVisitor<void, std::ostream&> {
     std::function<void(std::ostream&, const RamNode*)> rec;
     bool predicated = Global::config().has("predicated");
 
-    std::map<std::string, std::string> separate_methods;
+    // Map from method name to (body, decls) pair
+    std::map<std::string, std::pair<std::string, std::string>> separate_methods;
+    const std::map<std::string, std::string>& relation_decls;
 
     struct printer {
         CodeEmitter& p;
@@ -277,7 +284,8 @@ class CodeEmitter : public RamVisitor<void, std::ostream&> {
     };
 
 public:
-    CodeEmitter() {
+    CodeEmitter(const std::map<std::string, std::string>& rel_decls)
+	: relation_decls(rel_decls) {
         rec = [&](std::ostream& out, const RamNode* node) { this->visit(*node, out); };
     }
 
@@ -291,7 +299,7 @@ public:
     void visitFact(const RamFact& fact, std::ostream& out) override {
 	std::stringstream ss;
 	visitFactInternal(fact, ss);
-	handleSeparateMethod(out, ss.str());
+	handleSeparateMethod(out, fact, ss.str());
     }
 
     void visitFactInternal(const RamFact& fact, std::ostream& out) {
@@ -356,7 +364,7 @@ public:
     void visitInsert(const RamInsert& insert, std::ostream& out) override {
 	std::stringstream ss;
 	visitInsertInternal(insert, ss);
-	handleSeparateMethod(out, ss.str());
+	handleSeparateMethod(out, insert, ss.str());
     }
 
     void visitInsertInternal(const RamInsert& insert, std::ostream& out) {
@@ -466,7 +474,7 @@ public:
     void visitMerge(const RamMerge& merge, std::ostream& out) override {
 	std::stringstream ss;
 	visitMergeInternal(merge, ss);
-	handleSeparateMethod(out, ss.str());
+	handleSeparateMethod(out, merge, ss.str());
     }
 
     void visitMergeInternal(const RamMerge& merge, std::ostream& out) {
@@ -491,7 +499,7 @@ public:
     void visitClear(const RamClear& clear, std::ostream& out) override {
 	std::stringstream ss;
 	visitClearInternal(clear, ss);
-	handleSeparateMethod(out, ss.str());
+	handleSeparateMethod(out, clear, ss.str());
     }
 
     void visitClearInternal(const RamClear& clear, std::ostream& out) {
@@ -504,7 +512,7 @@ public:
     void visitDrop(const RamDrop& drop, std::ostream& out) override {
 	std::stringstream ss;
 	visitDropInternal(drop, ss);
-	handleSeparateMethod(out, ss.str());
+	handleSeparateMethod(out, drop, ss.str());
     }
 
     void visitDropInternal(const RamDrop& drop, std::ostream& out)  {
@@ -518,7 +526,7 @@ public:
     void visitPrintSize(const RamPrintSize& print, std::ostream& out) override {
 	std::stringstream ss;
 	visitPrintSizeInternal(print, ss);
-	handleSeparateMethod(out, ss.str());
+	handleSeparateMethod(out, print, ss.str());
     }
 
     void visitPrintSizeInternal(const RamPrintSize& print, std::ostream& out) {
@@ -537,7 +545,7 @@ public:
     void visitLogSize(const RamLogSize& print, std::ostream& out) override {
 	std::stringstream ss;
 	visitLogSizeInternal(print, ss);
-	handleSeparateMethod(out, ss.str());
+	handleSeparateMethod(out, print, ss.str());
     }
 
     void visitLogSizeInternal(const RamLogSize& print, std::ostream& out) {
@@ -568,7 +576,7 @@ public:
     void visitParallel(const RamParallel& parallel, std::ostream& out) override {
 	std::stringstream ss;
 	visitParallelInternal(parallel, ss);
-	handleSeparateMethod(out, ss.str());
+	handleSeparateMethod(out, parallel, ss.str());
     }
 
     void visitParallelInternal(const RamParallel& parallel, std::ostream& out) {
@@ -608,7 +616,7 @@ public:
     void visitLoop(const RamLoop& loop, std::ostream& out) override {
 	std::stringstream ss;
 	visitLoopInternal(loop, ss);
-	handleSeparateMethod(out, ss.str());
+	handleSeparateMethod(out, loop, ss.str());
     }
 
     void visitLoopInternal(const RamLoop& loop, std::ostream& out) {
@@ -620,7 +628,7 @@ public:
     void visitSwap(const RamSwap& swap, std::ostream& out) override {
 	std::stringstream ss;
 	visitSwapInternal(swap, ss);
-	handleSeparateMethod(out, ss.str());
+	handleSeparateMethod(out, swap, ss.str());
     }
 
     void visitSwapInternal(const RamSwap& swap, std::ostream& out) {
@@ -1651,14 +1659,26 @@ public:
     }
 
     // TODO: support separate-file outputs
-    void emitSeparateMethods(std::ostream& out) {
+    void emitSeparateMethods(std::map<std::string, std::string>& out) {
 	for (auto& p : separate_methods) {
 	    const auto& method_name = p.first;
-	    const auto& method_body = p.second;
-	    out << "template <bool performIO>\n";
-	    out << "void " << method_name << "() {\n";
-	    out << method_body;
-	    out << "}\n\n";
+	    const auto& filename = method_name + ".cc";
+	    const auto& method_body = p.second.first;
+	    const auto& method_decls = p.second.second;
+
+	    std::stringstream contents;
+	    // Headers and namespace decl
+	    contents << "#include \"souffle/CompiledSouffle.h\"\n";
+	    contents << "namespace souffle {\n";
+	    contents << "using namespace ram;\n";
+	    contents << method_decls << "\n";
+	    contents << "void " << method_name << "() {\n";
+	    contents << "const bool performIO = true;\n";
+	    contents << method_body;
+	    contents << "}\n";  // end of function
+	    contents << "}\n";  // end of namespace
+
+	    out.insert(std::make_pair(filename, contents.str()));
 	}
     }
 
@@ -1686,26 +1706,53 @@ private:
 	return hash;
     }
 
-    void handleSeparateMethod(std::ostream& out, const std::string& body) {
-	auto hash = SHA1Hash(body);
+    std::string getSeparateMethodDecls(const RamNode& node) {
+
+	std::set<std::string> relations;
+	visitDepthFirst(node, [&](const RamRelation& rel) {
+		relations.insert(getRelationName(rel));
+	    });
+
+	std::stringstream ss;
+	
+	for (const auto& rel : relations) {
+	    auto it = relation_decls.find(rel);
+	    assert(it != relation_decls.end());
+	    ss << "extern " << it->second << ";\n";
+	    const std::string& wrapper_rel = "wrapper_" + rel;
+	    it = relation_decls.find(wrapper_rel);
+	    if (it != relation_decls.end()) {
+		ss << "extern " << it->second << ";\n";
+	    }
+	}
+
+	return ss.str();
+    }
+
+    void handleSeparateMethod(std::ostream& out, const RamNode& node, const std::string& body) {
+	auto decls = getSeparateMethodDecls(node);
+	
+	auto hash = SHA1Hash(decls + "\n" + body);
 	std::string method_name = std::string("function_") + hash;
 	if (separate_methods.find(method_name) == separate_methods.end()) {
-	    separate_methods.insert(std::make_pair(method_name, body));
+	    separate_methods.insert(std::make_pair(method_name, std::make_pair(body, decls)));
 	}
-	out << method_name << "<performIO>();\n";
+	out << "extern void " << method_name << "();\n";
+	out << method_name << "();\n";
     }
 };
 
-CodeEmitter genCode(std::ostream& out, const RamStatement& stmt) {
+CodeEmitter genCode(std::ostream& out, const std::map<std::string, std::string> relationDecls, const RamStatement& stmt) {
     // use printer
-    CodeEmitter emit;
+    CodeEmitter emit(relationDecls);
     
     emit.visit(stmt, out);
     return emit;
 }
 }  // namespace
 
-void Synthesiser::generateCode(
+// Returns a map of additional output files.
+std::map<std::string, std::string> Synthesiser::generateCode(
         const RamTranslationUnit& unit, std::ostream& os, const std::string& id) const {
 
     const SymbolTable& symTable = unit.getSymbolTable();
@@ -1759,6 +1806,8 @@ void Synthesiser::generateCode(
     }
 
     // print relation definitions
+    std::map<std::string, std::string> relationDecls;
+
     std::string registerRel;   // registration of relations
     int relCtr = 0;
     std::string tempType;  // string to hold the type of the temporary relations
@@ -1783,6 +1832,7 @@ void Synthesiser::generateCode(
 
         // defining table
         os << "// -- Table: " << raw_name << "\n";
+	relationDecls.insert(std::make_pair(name, type + "* " + name));
         os << type << "* " << name << " = new " + type + "();\n";
         if ((rel.isInput() || rel.isComputed() || Global::config().has("provenance")) && !rel.isTemp()) {
             // construct types
@@ -1802,18 +1852,23 @@ void Synthesiser::generateCode(
             }
             tupleType += "}";
             tupleName += "}";
-	    
-            os << "souffle::RelationWrapper<";
-            os << relCtr++ << ",";
-            os << type << ",";
-            os << "Tuple<RamDomain," << physArity << ">,";
-            os << physArity << ",";
-            os << (rel.isInput() ? "true" : "false") << ",";
-            os << (rel.isComputed() ? "true" : "false");
-            os << "> wrapper_" << name << "(*" << name << ", symTable, \"" << raw_name << "\"," <<
-		tupleType << ", " << tupleName << ");\n";
 
-            registerRel += "addRelation(\"" + raw_name + "\",&wrapper_" + name + "," +
+	    std::stringstream wraptype;
+            wraptype << "souffle::RelationWrapper<";
+            wraptype << relCtr++ << ",";
+            wraptype << type << ",";
+            wraptype << "Tuple<RamDomain," << physArity << ">,";
+            wraptype << physArity << ",";
+            wraptype << (rel.isInput() ? "true" : "false") << ",";
+            wraptype << (rel.isComputed() ? "true" : "false");
+	    wraptype << ">";
+	    os << wraptype.str();
+            os << " wrapper_" << name << "(*" << name << ", symTable, \"" << raw_name << "\"," <<
+		tupleType << ", " << tupleName << ");\n";
+	    std::string wrapper_name = std::string("wrapper_") + name;
+	    relationDecls.insert(std::make_pair(name, wraptype.str() + " " + wrapper_name));
+
+            registerRel += "addRelation(\"" + raw_name + "\",&" + wrapper_name + "," +
                            std::to_string(rel.isInput()) + "," + std::to_string(rel.isOutput()) + ");\n";
         }
     });
@@ -1942,15 +1997,16 @@ void Synthesiser::generateCode(
         os << "#endif\n\n";
     }
 
+    std::vector<CodeEmitter> code_emitters;
+
     // add actual program body
     os << "// -- query evaluation --\n";
-    CodeEmitter emit;
     if (Global::config().has("profile")) {
         os << "std::ofstream profile(profiling_fname);\n";
         os << "profile << \"" << AstLogStatement::startDebug() << "\" << std::endl;\n";
-        emit = genCode(os, *(prog.getMain()));
+        code_emitters.emplace_back(genCode(os, relationDecls, *(prog.getMain())));
     } else {
-        emit = genCode(os, *(prog.getMain()));
+        code_emitters.emplace_back(genCode(os, relationDecls, *(prog.getMain())));
     }
     // add code printing hint statistics
     os << "\n// -- relation hint statistics --\n";
@@ -1967,9 +2023,6 @@ void Synthesiser::generateCode(
     os << "SignalHandler::instance()->reset();\n";
 
     os << "}\n";  // end of runFunction() method
-
-    // emit separate methods (TODO: into separate files)
-    emit.emitSeparateMethods(os);
 
     // add methods to run with and without performing IO (mainly for the interface)
     os << "public:\nvoid run() { runFunction<false>(); }\n";
@@ -2141,16 +2194,21 @@ void Synthesiser::generateCode(
                                                   "std::vector<RamDomain>& ret, std::vector<bool>& err) {\n";
 
             // generate code for body
-            emit = genCode(os, *sub.second);
+            code_emitters.emplace_back(genCode(os, relationDecls, *sub.second));
 
             os << "return;\n";
             os << "}\n";  // end of subroutine
             subroutineNum++;
-	    emit.emitSeparateMethods(os);
         }
     }
 
     os << "};\n";  // end of class declaration
+
+    // emit separate methods into separate files.
+    std::map<std::string, std::string> separate_files;
+    for (auto& emit : code_emitters) {
+	emit.emitSeparateMethods(separate_files);
+    }
 
     // hidden hooks
     os << "SouffleProgram *newInstance_" << id << "(){return new " << classname << ";}\n";
@@ -2211,5 +2269,7 @@ void Synthesiser::generateCode(
     os << "} catch(std::exception &e) { souffle::SignalHandler::instance()->error(e.what());}\n";
     os << "}\n";
     os << "#endif\n";
+
+    return separate_files;
 }
 }  // end of namespace souffle

@@ -231,6 +231,7 @@ public:
     /** Obtain list of child nodes */
     std::vector<const RamNode*> getChildNodes() const override {
         auto res = RamSearch::getChildNodes();
+	res.push_back(relation.get());
         for (auto& cur : queryPattern) {
             if (cur) {
                 res.push_back(cur.get());
