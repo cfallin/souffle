@@ -116,8 +116,6 @@ void compileToBinary(std::string compileCmd, const std::string& sourceFilename,
         std::cout.flush();
     }
 
-    std::cout << "Command line: " << compileCmd << "\n\n";
-
     // run executable
     if (system(compileCmd.c_str()) != 0) {
         throw std::invalid_argument("failed to compile C++ source <" + sourceFilename + ">");
@@ -542,12 +540,19 @@ int main(int argc, char** argv) {
             os.close();
 
 	    std::vector<std::string> extra_filenames;
-	    for (const auto& p : extra_files) {
-		const std::string extra_filename = baseFilename + "_" + p.first;
-		std::ofstream os(extra_filename);
-		os << p.second;
-		os.close();
-		extra_filenames.push_back(extra_filename);
+	    if (!extra_files.empty()) {
+		std::string dir_name = baseFilename + "_parts/";
+		std::string mkdir_cmd = "mkdir -p " + dir_name;
+		if (system(mkdir_cmd.c_str()) != 0) {
+		    throw std::runtime_error(std::string("Could not create directory: ") + dir_name);
+		}
+		for (const auto& p : extra_files) {
+		    const std::string extra_filename = dir_name + p.first;
+		    std::ofstream os(extra_filename);
+		    os << p.second;
+		    os.close();
+		    extra_filenames.push_back(extra_filename);
+		}
 	    }
 
             if (Global::config().has("compile")) {

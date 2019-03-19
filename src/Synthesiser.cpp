@@ -1662,7 +1662,7 @@ public:
     void emitSeparateMethods(std::map<std::string, std::string>& out) {
 	for (auto& p : separate_methods) {
 	    const auto& method_name = p.first;
-	    const auto& filename = method_name + ".cc";
+	    const auto& filename = method_name + ".cpp";
 	    const auto& method_body = p.second.first;
 	    const auto& method_decls = p.second.second;
 
