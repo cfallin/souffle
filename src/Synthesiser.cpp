@@ -92,7 +92,7 @@ private:
             }
         }
         std::string id;
-        for (auto ch : std::to_string(identifiers.size() + 1) + '_' + name.substr(i)) {
+        for (auto ch : name.substr(i)) {
             // alphanumeric characters are allowed
             if (isalnum(ch)) {
                 id += ch;
