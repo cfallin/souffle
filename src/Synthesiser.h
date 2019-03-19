@@ -23,6 +23,7 @@
 
 #include "RamStatement.h"
 
+#include <map>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -43,7 +44,9 @@ public:
      * @param tu
      * @param os the stream to send the generated C++ code to.
      * @param id the base identifier used in code generation, including class name.
+     * @returns additional files (map from filename to contents)
      */
-    void generateCode(const RamTranslationUnit& tu, std::ostream& os, const std::string& id) const;
+    std::map<std::string, std::string> generateCode(
+	const RamTranslationUnit& tu, std::ostream& os, const std::string& id) const;
 };
 }  // end of namespace souffle

@@ -95,7 +95,8 @@ void executeBinary(const std::string& binaryFilename) {
 /**
  * Compiles the given source file to a binary file.
  */
-void compileToBinary(std::string compileCmd, const std::string& sourceFilename) {
+void compileToBinary(std::string compileCmd, const std::string& sourceFilename,
+		     const std::vector<std::string>& extraFilenames) {
     // set up number of threads
     auto num_threads = std::stoi(Global::config().get("jobs"));
     if (num_threads == 1) {
@@ -104,6 +105,11 @@ void compileToBinary(std::string compileCmd, const std::string& sourceFilename) 
 
     // add source code
     compileCmd += sourceFilename;
+
+    for (const auto& f : extraFilenames) {
+	compileCmd += " ";
+	compileCmd += f;
+    }
 
     // separate souffle output from executable output
     if (Global::config().has("profile")) {
@@ -526,15 +532,32 @@ int main(int argc, char** argv) {
                 baseFilename = tempFile();
             }
 
+	    std::string dir_name = baseFilename + "_src/";
+	    std::string mkdir_cmd = "mkdir -p " + dir_name;
+	    if (system(mkdir_cmd.c_str()) != 0) {
+		throw std::runtime_error(std::string("Could not create directory: ") + dir_name);
+	    }
+
             std::string baseIdentifier = identifier(simpleName(baseFilename));
-            std::string sourceFilename = baseFilename + ".cpp";
+            std::string sourceFilename = dir_name + baseFilename + ".cpp";
 
             std::ofstream os(sourceFilename);
-            synthesiser->generateCode(*ramTranslationUnit, os, baseIdentifier);
+            auto extra_files = synthesiser->generateCode(*ramTranslationUnit, os, baseIdentifier);
             os.close();
 
+	    std::vector<std::string> extra_filenames;
+	    if (!extra_files.empty()) {
+		for (const auto& p : extra_files) {
+		    const std::string extra_filename = dir_name + p.first;
+		    std::ofstream os(extra_filename);
+		    os << p.second;
+		    os.close();
+		    extra_filenames.push_back(extra_filename);
+		}
+	    }
+
             if (Global::config().has("compile")) {
-                compileToBinary(compileCmd, sourceFilename);
+                compileToBinary(compileCmd, sourceFilename, extra_filenames);
                 // run compiled C++ program if requested.
                 if (!Global::config().has("dl-program")) {
                     executeBinary(baseFilename);

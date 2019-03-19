@@ -31,14 +31,18 @@
 #include "SignalHandler.h"
 #include "TypeSystem.h"
 #include "UnaryFunctorOps.h"
+#include "sha1.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <map>
 #include <memory>
 #include <regex>
+#include <sstream>
 #include <utility>
 
+#include <assert.h>
 #include <unistd.h>
 
 #ifdef _OPENMP
@@ -92,7 +96,7 @@ private:
             }
         }
         std::string id;
-        for (auto ch : std::to_string(identifiers.size() + 1) + '_' + name.substr(i)) {
+        for (auto ch : name.substr(i)) {
             // alphanumeric characters are allowed
             if (isalnum(ch)) {
                 id += ch;
@@ -240,6 +244,10 @@ std::set<RamRelation> getReferencedRelations(const RamOperation& op) {
     return res;
 }
 
+class RelationDeclEmitter : public RamVisitor<void> {
+
+};
+
 class CodeEmitter : public RamVisitor<void, std::ostream&> {
 // macros to add comments to generated code for debugging
 #ifndef PRINT_BEGIN_COMMENT
@@ -257,6 +265,10 @@ class CodeEmitter : public RamVisitor<void, std::ostream&> {
     std::function<void(std::ostream&, const RamNode*)> rec;
     bool predicated = Global::config().has("predicated");
 
+    // Map from method name to (body, decls) pair
+    std::map<std::string, std::pair<std::string, std::string>> separate_methods;
+    const std::map<std::string, std::string>& relation_decls;
+
     struct printer {
         CodeEmitter& p;
         const RamNode& node;
@@ -272,7 +284,8 @@ class CodeEmitter : public RamVisitor<void, std::ostream&> {
     };
 
 public:
-    CodeEmitter() {
+    CodeEmitter(const std::map<std::string, std::string>& rel_decls)
+	: relation_decls(rel_decls) {
         rec = [&](std::ostream& out, const RamNode* node) { this->visit(*node, out); };
     }
 
@@ -284,6 +297,12 @@ public:
     }
 
     void visitFact(const RamFact& fact, std::ostream& out) override {
+	std::stringstream ss;
+	visitFactInternal(fact, ss);
+	handleSeparateMethod(out, fact, ss.str());
+    }
+
+    void visitFactInternal(const RamFact& fact, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
 	std::string pred = predicated ? "BDD::TRUE().as_domain(), BDD::NO_VAR().as_domain()" : "";
 	if (predicated && fact.getValues().size() > 0) {
@@ -343,6 +362,13 @@ public:
     }
 
     void visitInsert(const RamInsert& insert, std::ostream& out) override {
+	std::stringstream ss;
+	visitInsertInternal(insert, ss);
+	handleSeparateMethod(out, insert, ss.str());
+    }
+
+    void visitInsertInternal(const RamInsert& insert, std::ostream& out) {
+	
         PRINT_BEGIN_COMMENT(out);
 
         // enclose operation with a check for an empty relation
@@ -446,6 +472,12 @@ public:
     }
 
     void visitMerge(const RamMerge& merge, std::ostream& out) override {
+	std::stringstream ss;
+	visitMergeInternal(merge, ss);
+	handleSeparateMethod(out, merge, ss.str());
+    }
+
+    void visitMergeInternal(const RamMerge& merge, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         if (merge.getTargetRelation().isEqRel()) {
             out << getRelationName(merge.getSourceRelation()) << "->"
@@ -465,6 +497,12 @@ public:
     }
 
     void visitClear(const RamClear& clear, std::ostream& out) override {
+	std::stringstream ss;
+	visitClearInternal(clear, ss);
+	handleSeparateMethod(out, clear, ss.str());
+    }
+
+    void visitClearInternal(const RamClear& clear, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         out << getRelationName(clear.getRelation()) << "->"
             << "purge();\n";
@@ -472,6 +510,12 @@ public:
     }
 
     void visitDrop(const RamDrop& drop, std::ostream& out) override {
+	std::stringstream ss;
+	visitDropInternal(drop, ss);
+	handleSeparateMethod(out, drop, ss.str());
+    }
+
+    void visitDropInternal(const RamDrop& drop, std::ostream& out)  {
         PRINT_BEGIN_COMMENT(out);
         out << "if (!isHintsProfilingEnabled() && (performIO || " << drop.getRelation().isTemp() << ")) ";
         out << getRelationName(drop.getRelation()) << "->"
@@ -480,6 +524,12 @@ public:
     }
 
     void visitPrintSize(const RamPrintSize& print, std::ostream& out) override {
+	std::stringstream ss;
+	visitPrintSizeInternal(print, ss);
+	handleSeparateMethod(out, print, ss.str());
+    }
+
+    void visitPrintSizeInternal(const RamPrintSize& print, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         out << "if (performIO) {\n";
         out << "{ auto lease = getOutputLock().acquire(); \n";
@@ -493,6 +543,12 @@ public:
     }
 
     void visitLogSize(const RamLogSize& print, std::ostream& out) override {
+	std::stringstream ss;
+	visitLogSizeInternal(print, ss);
+	handleSeparateMethod(out, print, ss.str());
+    }
+
+    void visitLogSizeInternal(const RamLogSize& print, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         const std::string ext = fileExtension(Global::config().get("profile"));
         out << "{ auto lease = getOutputLock().acquire(); \n";
@@ -518,6 +574,12 @@ public:
     }
 
     void visitParallel(const RamParallel& parallel, std::ostream& out) override {
+	std::stringstream ss;
+	visitParallelInternal(parallel, ss);
+	handleSeparateMethod(out, parallel, ss.str());
+    }
+
+    void visitParallelInternal(const RamParallel& parallel, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         auto stmts = parallel.getStatements();
 
@@ -552,12 +614,24 @@ public:
     }
 
     void visitLoop(const RamLoop& loop, std::ostream& out) override {
+	std::stringstream ss;
+	visitLoopInternal(loop, ss);
+	handleSeparateMethod(out, loop, ss.str());
+    }
+
+    void visitLoopInternal(const RamLoop& loop, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         out << "for(;;) {\n" << print(loop.getBody()) << "}\n";
         PRINT_END_COMMENT(out);
     }
 
     void visitSwap(const RamSwap& swap, std::ostream& out) override {
+	std::stringstream ss;
+	visitSwapInternal(swap, ss);
+	handleSeparateMethod(out, swap, ss.str());
+    }
+
+    void visitSwapInternal(const RamSwap& swap, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         const std::string tempKnowledge = "rel_0";
         const std::string& deltaKnowledge = getRelationName(swap.getFirstRelation());
@@ -1584,6 +1658,30 @@ public:
         assert(false && "Unsupported Node Type!");
     }
 
+    // TODO: support separate-file outputs
+    void emitSeparateMethods(std::map<std::string, std::string>& out) {
+	for (auto& p : separate_methods) {
+	    const auto& method_name = p.first;
+	    const auto& filename = method_name + ".cpp";
+	    const auto& method_body = p.second.first;
+	    const auto& method_decls = p.second.second;
+
+	    std::stringstream contents;
+	    // Headers and namespace decl
+	    contents << "#include \"souffle/CompiledSouffle.h\"\n";
+	    contents << "namespace souffle {\n";
+	    contents << "using namespace ram;\n";
+	    contents << method_decls << "\n";
+	    contents << "void " << method_name << "() {\n";
+	    contents << "const bool performIO = true;\n";
+	    contents << method_body;
+	    contents << "}\n";  // end of function
+	    contents << "}\n";  // end of namespace
+
+	    out.insert(std::make_pair(filename, contents.str()));
+	}
+    }
+
 private:
     printer print(const RamNode& node) {
         return printer(*this, node);
@@ -1592,15 +1690,69 @@ private:
     printer print(const RamNode* node) {
         return print(*node);
     }
+
+    std::string SHA1Hash(const std::string& data) {
+	static const char* hexchars = "0123456789abcdef";
+	SHA1_CTX sha;
+	uint8_t digest[20];
+	SHA1Init(&sha);
+	SHA1Update(&sha, reinterpret_cast<const unsigned char*>(data.data()), data.size());
+	SHA1Final(digest, &sha);
+	std::string hash;
+	for (int i = 0; i < 20; i++) {
+	    hash += hexchars[(digest[i] >> 4) & 0x0f];
+	    hash += hexchars[digest[i] & 0x0f];
+	}
+	return hash;
+    }
+
+    std::string getSeparateMethodDecls(const RamNode& node) {
+
+	std::set<std::string> relations;
+	visitDepthFirst(node, [&](const RamRelation& rel) {
+		relations.insert(getRelationName(rel));
+	    });
+
+	std::stringstream ss;
+	
+	for (const auto& rel : relations) {
+	    auto it = relation_decls.find(rel);
+	    assert(it != relation_decls.end());
+	    ss << "extern " << it->second << ";\n";
+	    const std::string& wrapper_rel = "wrapper_" + rel;
+	    it = relation_decls.find(wrapper_rel);
+	    if (it != relation_decls.end()) {
+		ss << "extern " << it->second << ";\n";
+	    }
+	}
+
+	return ss.str();
+    }
+
+    void handleSeparateMethod(std::ostream& out, const RamNode& node, const std::string& body) {
+	auto decls = getSeparateMethodDecls(node);
+	
+	auto hash = SHA1Hash(decls + "\n" + body);
+	std::string method_name = std::string("function_") + hash;
+	if (separate_methods.find(method_name) == separate_methods.end()) {
+	    separate_methods.insert(std::make_pair(method_name, std::make_pair(body, decls)));
+	}
+	out << "extern void " << method_name << "();\n";
+	out << method_name << "();\n";
+    }
 };
 
-void genCode(std::ostream& out, const RamStatement& stmt) {
+CodeEmitter genCode(std::ostream& out, const std::map<std::string, std::string> relationDecls, const RamStatement& stmt) {
     // use printer
-    CodeEmitter().visit(stmt, out);
+    CodeEmitter emit(relationDecls);
+    
+    emit.visit(stmt, out);
+    return emit;
 }
 }  // namespace
 
-void Synthesiser::generateCode(
+// Returns a map of additional output files.
+std::map<std::string, std::string> Synthesiser::generateCode(
         const RamTranslationUnit& unit, std::ostream& os, const std::string& id) const {
 
     const SymbolTable& symTable = unit.getSymbolTable();
@@ -1623,6 +1775,8 @@ void Synthesiser::generateCode(
     //                      Code Generation
     // ---------------------------------------------------------------
 
+    bool predicated = Global::config().has("predicated");
+
     std::string classname = "Sf_" + id;
 
     // generate C++ program
@@ -1635,34 +1789,16 @@ void Synthesiser::generateCode(
     os << "namespace souffle {\n";
     os << "using namespace ram;\n";
 
-    // print wrapper for regex
-    os << "class " << classname << " : public SouffleProgram {\n";
-    os << "private:\n";
-    os << "static inline bool regex_wrapper(const char *pattern, const char *text) {\n";
-    os << "   bool result = false; \n";
-    os << "   try { result = std::regex_match(text, std::regex(pattern)); } catch(...) { \n";
-    os << "     std::cerr << \"warning: wrong pattern provided for match(\\\"\" << pattern << \"\\\",\\\"\" "
-          "<< text << \"\\\")\\n\";\n}\n";
-    os << "   return result;\n";
-    os << "}\n";
-    os << "static inline std::string substr_wrapper(const char *str, size_t idx, size_t len) {\n";
-    os << "   std::string sub_str, result; \n";
-    os << "   try { result = std::string(str).substr(idx,len); } catch(...) { \n";
-    os << "     std::cerr << \"warning: wrong index position provided by substr(\\\"\";\n";
-    os << "     std::cerr << str << \"\\\",\" << (int32_t)idx << \",\" << (int32_t)len << \") "
-          "functor.\\n\";\n";
-    os << "   } return result;\n";
-    os << "}\n";
-
-    if (Global::config().has("profile")) {
-        os << "std::string profiling_fname;\n";
-    }
+    // N.B.: we make the symtab, BDD, and relations global vars so
+    // that modifying the set of relations does not change the class
+    // layout and invalidate separate compilation of all RAM
+    // statements, one per .cpp file. This is an important
+    // optimization for compile time. In effect, the linker patches up
+    // what would have been class-layout offsets with global variable
+    // addresses instead.
 
     // declare symbol table
-    os << "public:\n";
     os << "SymbolTable symTable;\n";
-
-    bool predicated = Global::config().has("predicated");
 
     // declare predicate table
     if (predicated) {
@@ -1670,8 +1806,8 @@ void Synthesiser::generateCode(
     }
 
     // print relation definitions
-    std::string initCons;      // initialization of constructor
-    std::string deleteForNew;  // matching deletes for each new, used in the destructor
+    std::map<std::string, std::string> relationDecls;
+
     std::string registerRel;   // registration of relations
     int relCtr = 0;
     std::string tempType;  // string to hold the type of the temporary relations
@@ -1696,22 +1832,9 @@ void Synthesiser::generateCode(
 
         // defining table
         os << "// -- Table: " << raw_name << "\n";
-        os << type << "* " << name << ";\n";
-        if (initCons.size() > 0) {
-            initCons += ",\n";
-        }
-        initCons += name + "(new " + type + "())";
-        deleteForNew += "delete " + name + ";\n";
+	relationDecls.insert(std::make_pair(name, type + "* " + name));
+        os << type << "* " << name << " = new " + type + "();\n";
         if ((rel.isInput() || rel.isComputed() || Global::config().has("provenance")) && !rel.isTemp()) {
-            os << "souffle::RelationWrapper<";
-            os << relCtr++ << ",";
-            os << type << ",";
-            os << "Tuple<RamDomain," << physArity << ">,";
-            os << physArity << ",";
-            os << (rel.isInput() ? "true" : "false") << ",";
-            os << (rel.isComputed() ? "true" : "false");
-            os << "> wrapper_" << name << ";\n";
-
             // construct types
             std::string tupleType = "std::array<const char *," + std::to_string(physArity) + ">{";
             std::string tupleName = "std::array<const char *," + std::to_string(physArity) + ">{";
@@ -1730,12 +1853,49 @@ void Synthesiser::generateCode(
             tupleType += "}";
             tupleName += "}";
 
-            initCons += ",\nwrapper_" + name + "(" + "*" + name + ",symTable,\"" + raw_name + "\"," +
-                        tupleType + "," + tupleName + ")";
-            registerRel += "addRelation(\"" + raw_name + "\",&wrapper_" + name + "," +
+	    std::stringstream wraptype;
+            wraptype << "souffle::RelationWrapper<";
+            wraptype << relCtr++ << ",";
+            wraptype << type << ",";
+            wraptype << "Tuple<RamDomain," << physArity << ">,";
+            wraptype << physArity << ",";
+            wraptype << (rel.isInput() ? "true" : "false") << ",";
+            wraptype << (rel.isComputed() ? "true" : "false");
+	    wraptype << ">";
+	    os << wraptype.str();
+            os << " wrapper_" << name << "(*" << name << ", symTable, \"" << raw_name << "\"," <<
+		tupleType << ", " << tupleName << ");\n";
+	    std::string wrapper_name = std::string("wrapper_") + name;
+	    relationDecls.insert(std::make_pair(name, wraptype.str() + " " + wrapper_name));
+
+            registerRel += "addRelation(\"" + raw_name + "\",&" + wrapper_name + "," +
                            std::to_string(rel.isInput()) + "," + std::to_string(rel.isOutput()) + ");\n";
         }
     });
+
+
+    // print wrapper for regex
+    os << "class " << classname << " : public SouffleProgram {\n";
+    os << "private:\n";
+    os << "static inline bool regex_wrapper(const char *pattern, const char *text) {\n";
+    os << "   bool result = false; \n";
+    os << "   try { result = std::regex_match(text, std::regex(pattern)); } catch(...) { \n";
+    os << "     std::cerr << \"warning: wrong pattern provided for match(\\\"\" << pattern << \"\\\",\\\"\" "
+          "<< text << \"\\\")\\n\";\n}\n";
+    os << "   return result;\n";
+    os << "}\n";
+    os << "static inline std::string substr_wrapper(const char *str, size_t idx, size_t len) {\n";
+    os << "   std::string sub_str, result; \n";
+    os << "   try { result = std::string(str).substr(idx,len); } catch(...) { \n";
+    os << "     std::cerr << \"warning: wrong index position provided by substr(\\\"\";\n";
+    os << "     std::cerr << str << \"\\\",\" << (int32_t)idx << \",\" << (int32_t)len << \") "
+          "functor.\\n\";\n";
+    os << "   } return result;\n";
+    os << "}\n";
+
+    if (Global::config().has("profile")) {
+        os << "std::string profiling_fname;\n";
+    }
 
     os << "public:\n";
 
@@ -1744,14 +1904,8 @@ void Synthesiser::generateCode(
     os << classname;
     if (Global::config().has("profile")) {
         os << "(std::string pf=\"profile.log\", std::string inputDirectory = \".\") : profiling_fname(pf)";
-        if (initCons.size() > 0) {
-            os << ",\n" << initCons;
-        }
     } else {
         os << "(std::string inputDirectory = \".\")";
-        if (initCons.size() > 0) {
-            os << " : " << initCons;
-        }
     }
     os << "{\n";
     os << registerRel;
@@ -1819,7 +1973,6 @@ void Synthesiser::generateCode(
     // -- destructor --
 
     os << "~" << classname << "() {\n";
-    os << deleteForNew;
     os << "}\n";
 
     // -- run function --
@@ -1844,14 +1997,16 @@ void Synthesiser::generateCode(
         os << "#endif\n\n";
     }
 
+    std::vector<CodeEmitter> code_emitters;
+
     // add actual program body
     os << "// -- query evaluation --\n";
     if (Global::config().has("profile")) {
         os << "std::ofstream profile(profiling_fname);\n";
         os << "profile << \"" << AstLogStatement::startDebug() << "\" << std::endl;\n";
-        genCode(os, *(prog.getMain()));
+        code_emitters.emplace_back(genCode(os, relationDecls, *(prog.getMain())));
     } else {
-        genCode(os, *(prog.getMain()));
+        code_emitters.emplace_back(genCode(os, relationDecls, *(prog.getMain())));
     }
     // add code printing hint statistics
     os << "\n// -- relation hint statistics --\n";
@@ -2039,7 +2194,7 @@ void Synthesiser::generateCode(
                                                   "std::vector<RamDomain>& ret, std::vector<bool>& err) {\n";
 
             // generate code for body
-            genCode(os, *sub.second);
+            code_emitters.emplace_back(genCode(os, relationDecls, *sub.second));
 
             os << "return;\n";
             os << "}\n";  // end of subroutine
@@ -2049,10 +2204,15 @@ void Synthesiser::generateCode(
 
     os << "};\n";  // end of class declaration
 
+    // emit separate methods into separate files.
+    std::map<std::string, std::string> separate_files;
+    for (auto& emit : code_emitters) {
+	emit.emitSeparateMethods(separate_files);
+    }
+
     // hidden hooks
     os << "SouffleProgram *newInstance_" << id << "(){return new " << classname << ";}\n";
-    os << "SymbolTable *getST_" << id << "(SouffleProgram *p){return &reinterpret_cast<" << classname
-       << "*>(p)->symTable;}\n";
+    os << "SymbolTable *getST_" << id << "(SouffleProgram *p){return &symTable;}\n";
 
     os << "#ifdef __EMBEDDED_SOUFFLE__\n";
     os << "class factory_" << classname << ": public souffle::ProgramFactory {\n";
@@ -2109,5 +2269,7 @@ void Synthesiser::generateCode(
     os << "} catch(std::exception &e) { souffle::SignalHandler::instance()->error(e.what());}\n";
     os << "}\n";
     os << "#endif\n";
+
+    return separate_files;
 }
 }  // end of namespace souffle
