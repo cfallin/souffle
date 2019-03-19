@@ -31,12 +31,15 @@
 #include "SignalHandler.h"
 #include "TypeSystem.h"
 #include "UnaryFunctorOps.h"
+#include "sha1.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <map>
 #include <memory>
 #include <regex>
+#include <sstream>
 #include <utility>
 
 #include <unistd.h>
@@ -257,6 +260,8 @@ class CodeEmitter : public RamVisitor<void, std::ostream&> {
     std::function<void(std::ostream&, const RamNode*)> rec;
     bool predicated = Global::config().has("predicated");
 
+    std::map<std::string, std::string> separate_methods;
+
     struct printer {
         CodeEmitter& p;
         const RamNode& node;
@@ -284,6 +289,12 @@ public:
     }
 
     void visitFact(const RamFact& fact, std::ostream& out) override {
+	std::stringstream ss;
+	visitFactInternal(fact, ss);
+	handleSeparateMethod(out, ss.str());
+    }
+
+    void visitFactInternal(const RamFact& fact, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
 	std::string pred = predicated ? "BDD::TRUE().as_domain(), BDD::NO_VAR().as_domain()" : "";
 	if (predicated && fact.getValues().size() > 0) {
@@ -343,6 +354,13 @@ public:
     }
 
     void visitInsert(const RamInsert& insert, std::ostream& out) override {
+	std::stringstream ss;
+	visitInsertInternal(insert, ss);
+	handleSeparateMethod(out, ss.str());
+    }
+
+    void visitInsertInternal(const RamInsert& insert, std::ostream& out) {
+	
         PRINT_BEGIN_COMMENT(out);
 
         // enclose operation with a check for an empty relation
@@ -446,6 +464,12 @@ public:
     }
 
     void visitMerge(const RamMerge& merge, std::ostream& out) override {
+	std::stringstream ss;
+	visitMergeInternal(merge, ss);
+	handleSeparateMethod(out, ss.str());
+    }
+
+    void visitMergeInternal(const RamMerge& merge, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         if (merge.getTargetRelation().isEqRel()) {
             out << getRelationName(merge.getSourceRelation()) << "->"
@@ -465,6 +489,12 @@ public:
     }
 
     void visitClear(const RamClear& clear, std::ostream& out) override {
+	std::stringstream ss;
+	visitClearInternal(clear, ss);
+	handleSeparateMethod(out, ss.str());
+    }
+
+    void visitClearInternal(const RamClear& clear, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         out << getRelationName(clear.getRelation()) << "->"
             << "purge();\n";
@@ -472,6 +502,12 @@ public:
     }
 
     void visitDrop(const RamDrop& drop, std::ostream& out) override {
+	std::stringstream ss;
+	visitDropInternal(drop, ss);
+	handleSeparateMethod(out, ss.str());
+    }
+
+    void visitDropInternal(const RamDrop& drop, std::ostream& out)  {
         PRINT_BEGIN_COMMENT(out);
         out << "if (!isHintsProfilingEnabled() && (performIO || " << drop.getRelation().isTemp() << ")) ";
         out << getRelationName(drop.getRelation()) << "->"
@@ -480,6 +516,12 @@ public:
     }
 
     void visitPrintSize(const RamPrintSize& print, std::ostream& out) override {
+	std::stringstream ss;
+	visitPrintSizeInternal(print, ss);
+	handleSeparateMethod(out, ss.str());
+    }
+
+    void visitPrintSizeInternal(const RamPrintSize& print, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         out << "if (performIO) {\n";
         out << "{ auto lease = getOutputLock().acquire(); \n";
@@ -493,6 +535,12 @@ public:
     }
 
     void visitLogSize(const RamLogSize& print, std::ostream& out) override {
+	std::stringstream ss;
+	visitLogSizeInternal(print, ss);
+	handleSeparateMethod(out, ss.str());
+    }
+
+    void visitLogSizeInternal(const RamLogSize& print, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         const std::string ext = fileExtension(Global::config().get("profile"));
         out << "{ auto lease = getOutputLock().acquire(); \n";
@@ -518,6 +566,12 @@ public:
     }
 
     void visitParallel(const RamParallel& parallel, std::ostream& out) override {
+	std::stringstream ss;
+	visitParallelInternal(parallel, ss);
+	handleSeparateMethod(out, ss.str());
+    }
+
+    void visitParallelInternal(const RamParallel& parallel, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         auto stmts = parallel.getStatements();
 
@@ -552,12 +606,24 @@ public:
     }
 
     void visitLoop(const RamLoop& loop, std::ostream& out) override {
+	std::stringstream ss;
+	visitLoopInternal(loop, ss);
+	handleSeparateMethod(out, ss.str());
+    }
+
+    void visitLoopInternal(const RamLoop& loop, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         out << "for(;;) {\n" << print(loop.getBody()) << "}\n";
         PRINT_END_COMMENT(out);
     }
 
     void visitSwap(const RamSwap& swap, std::ostream& out) override {
+	std::stringstream ss;
+	visitSwapInternal(swap, ss);
+	handleSeparateMethod(out, ss.str());
+    }
+
+    void visitSwapInternal(const RamSwap& swap, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         const std::string tempKnowledge = "rel_0";
         const std::string& deltaKnowledge = getRelationName(swap.getFirstRelation());
@@ -1584,6 +1650,18 @@ public:
         assert(false && "Unsupported Node Type!");
     }
 
+    // TODO: support separate-file outputs
+    void emitSeparateMethods(std::ostream& out) {
+	for (auto& p : separate_methods) {
+	    const auto& method_name = p.first;
+	    const auto& method_body = p.second;
+	    out << "template <bool performIO>\n";
+	    out << "void " << method_name << "() {\n";
+	    out << method_body;
+	    out << "}\n\n";
+	}
+    }
+
 private:
     printer print(const RamNode& node) {
         return printer(*this, node);
@@ -1592,11 +1670,38 @@ private:
     printer print(const RamNode* node) {
         return print(*node);
     }
+
+    std::string SHA1Hash(const std::string& data) {
+	static const char* hexchars = "0123456789abcdef";
+	SHA1_CTX sha;
+	uint8_t digest[20];
+	SHA1Init(&sha);
+	SHA1Update(&sha, reinterpret_cast<const unsigned char*>(data.data()), data.size());
+	SHA1Final(digest, &sha);
+	std::string hash;
+	for (int i = 0; i < 20; i++) {
+	    hash += hexchars[(digest[i] >> 4) & 0x0f];
+	    hash += hexchars[digest[i] & 0x0f];
+	}
+	return hash;
+    }
+
+    void handleSeparateMethod(std::ostream& out, const std::string& body) {
+	auto hash = SHA1Hash(body);
+	std::string method_name = std::string("function_") + hash;
+	if (separate_methods.find(method_name) == separate_methods.end()) {
+	    separate_methods.insert(std::make_pair(method_name, body));
+	}
+	out << method_name << "<performIO>();\n";
+    }
 };
 
-void genCode(std::ostream& out, const RamStatement& stmt) {
+CodeEmitter genCode(std::ostream& out, const RamStatement& stmt) {
     // use printer
-    CodeEmitter().visit(stmt, out);
+    CodeEmitter emit;
+    
+    emit.visit(stmt, out);
+    return emit;
 }
 }  // namespace
 
@@ -1839,12 +1944,13 @@ void Synthesiser::generateCode(
 
     // add actual program body
     os << "// -- query evaluation --\n";
+    CodeEmitter emit;
     if (Global::config().has("profile")) {
         os << "std::ofstream profile(profiling_fname);\n";
         os << "profile << \"" << AstLogStatement::startDebug() << "\" << std::endl;\n";
-        genCode(os, *(prog.getMain()));
+        emit = genCode(os, *(prog.getMain()));
     } else {
-        genCode(os, *(prog.getMain()));
+        emit = genCode(os, *(prog.getMain()));
     }
     // add code printing hint statistics
     os << "\n// -- relation hint statistics --\n";
@@ -1861,6 +1967,9 @@ void Synthesiser::generateCode(
     os << "SignalHandler::instance()->reset();\n";
 
     os << "}\n";  // end of runFunction() method
+
+    // emit separate methods (TODO: into separate files)
+    emit.emitSeparateMethods(os);
 
     // add methods to run with and without performing IO (mainly for the interface)
     os << "public:\nvoid run() { runFunction<false>(); }\n";
@@ -2032,11 +2141,12 @@ void Synthesiser::generateCode(
                                                   "std::vector<RamDomain>& ret, std::vector<bool>& err) {\n";
 
             // generate code for body
-            genCode(os, *sub.second);
+            emit = genCode(os, *sub.second);
 
             os << "return;\n";
             os << "}\n";  // end of subroutine
             subroutineNum++;
+	    emit.emitSeparateMethods(os);
         }
     }
 
