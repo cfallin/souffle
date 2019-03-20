@@ -115,10 +115,6 @@ cd "$OLDPWD"
 # Compile
 rm -f $dir/$exe
 
-# Touch object files that already exist: because names are based on
-# content-hashes, if the file successfully compiled, it must be
-# up-to-date (no .cpp file will change once on disk under that name).
-
 src_dir=`dirname $MAINFILE`
 
 OBJS=""
@@ -126,10 +122,13 @@ for file in $FILES; do
     BASE=`basename $file .cpp`
     OBJ=$BASE.o
     OBJS="$OBJS $OBJ"
-    if [ -f $src_dir/$OBJ ]; then
-	touch $src_dir/$OBJ
-    fi
 done
+
+CXX="@CXX"
+
+if which ccache >/dev/null 2>&1; then
+    CXX="ccache $CXX"
+fi
 
 # Now generate a Makefile to allow for a parallel build.
 

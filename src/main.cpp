@@ -50,6 +50,11 @@
 #include <list>
 #include <string>
 
+#include <libgen.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/stat.h>
+
 #include "config.h"
 #include <ctype.h>
 #include <errno.h>
@@ -64,67 +69,15 @@
 
 namespace souffle {
 
-/**
- * Executes a binary file.
- */
-void executeBinary(const std::string& binaryFilename) {
-    assert(!binaryFilename.empty() && "binary filename cannot be blank");
-
-    // separate souffle output from executable output
-    if (Global::config().has("profile")) {
-        std::cout.flush();
-    }
-
-    // check whether the executable exists
-    if (!isExecutable(binaryFilename)) {
-        throw std::invalid_argument("Generated executable <" + binaryFilename + "> could not be found");
-    }
-
-    // run executable
-    int result = system(binaryFilename.c_str());
-    // Remove temp files
-    if (Global::config().get("dl-program").empty()) {
-        remove(binaryFilename.c_str());
-        remove((binaryFilename + ".cpp").c_str());
-    }
-    if (result != 0) {
-        exit(result);
-    }
-}
-
-/**
- * Compiles the given source file to a binary file.
- */
-void compileToBinary(std::string compileCmd, const std::string& sourceFilename,
-		     const std::vector<std::string>& extraFilenames) {
-    // set up number of threads
-    auto num_threads = std::stoi(Global::config().get("jobs"));
-    if (num_threads == 1) {
-        compileCmd += "-s ";
-    }
-
-    // add source code
-    compileCmd += sourceFilename;
-
-    for (const auto& f : extraFilenames) {
-	compileCmd += " ";
-	compileCmd += f;
-    }
-
-    // separate souffle output from executable output
-    if (Global::config().has("profile")) {
-        std::cout.flush();
-    }
-
-    // run executable
-    if (system(compileCmd.c_str()) != 0) {
-        throw std::invalid_argument("failed to compile C++ source <" + sourceFilename + ">");
-    }
-}
-
 int main(int argc, char** argv) {
     /* Time taking for overall runtime */
     auto souffle_start = std::chrono::high_resolution_clock::now();
+
+    char* bin_dir = strdup(argv[0]);
+    bin_dir = dirname(bin_dir);
+    bin_dir = realpath(bin_dir, NULL);
+    
+    std::string include_dir = std::string(bin_dir) + "/../include/";
 
     /* have all to do with command line arguments in its own scope, as these are accessible through the global
      * configuration only */
@@ -532,7 +485,7 @@ int main(int argc, char** argv) {
                 baseFilename = tempFile();
             }
 
-	    std::string dir_name = baseFilename + "_src/";
+	    std::string dir_name = baseFilename + "/";
 	    std::string mkdir_cmd = "mkdir -p " + dir_name;
 	    if (system(mkdir_cmd.c_str()) != 0) {
 		throw std::runtime_error(std::string("Could not create directory: ") + dir_name);
@@ -549,20 +502,36 @@ int main(int argc, char** argv) {
 	    if (!extra_files.empty()) {
 		for (const auto& p : extra_files) {
 		    const std::string extra_filename = dir_name + p.first;
+		    extra_filenames.push_back(extra_filename);
+
+		    // because files are named with hashes of
+		    // contents, if the file exists, then no need to
+		    // overwrite (and spuriously update timestamp).
+		    if (access(extra_filename.c_str(), R_OK) == 0) {
+			continue;
+		    }
 		    std::ofstream os(extra_filename);
 		    os << p.second;
 		    os.close();
-		    extra_filenames.push_back(extra_filename);
 		}
 	    }
 
-            if (Global::config().has("compile")) {
-                compileToBinary(compileCmd, sourceFilename, extra_filenames);
-                // run compiled C++ program if requested.
-                if (!Global::config().has("dl-program")) {
-                    executeBinary(baseFilename);
-                }
-            }
+	    // Create a Makefile
+	    std::ofstream makefile(dir_name + "Makefile");
+	    makefile << "CXX := g++\n";
+	    makefile << "CXXFLAGS := -std=c++11 -fopenmp -O2 -w -I " << include_dir << "\n";
+	    makefile << "LDFLAGS := -lz -lpthread -lsqlite3 -fopenmp\n";
+	    makefile << baseFilename << ": " << baseFilename << ".o";
+	    for (const auto& p : extra_files) {
+		std::string fname = p.first;
+		if (fname.size() >= 4 && fname.substr(fname.size() - 4) == ".cpp") {
+		    fname = fname.substr(0, fname.size() - 4) + ".o";
+		}
+		makefile << " " << fname;
+	    }
+	    makefile << "\n";
+	    makefile << "\t$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $^\n";
+	    makefile.close();
         } catch (std::exception& e) {
             std::cerr << e.what() << std::endl;
         }
@@ -583,3 +552,4 @@ int main(int argc, char** argv) {
 int main(int argc, char** argv) {
     return souffle::main(argc, argv);
 }
+

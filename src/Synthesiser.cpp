@@ -1660,6 +1660,7 @@ public:
 
     // TODO: support separate-file outputs
     void emitSeparateMethods(std::map<std::string, std::string>& out) {
+	bool predicated = Global::config().has("predicated");
 	for (auto& p : separate_methods) {
 	    const auto& method_name = p.first;
 	    const auto& filename = method_name + ".cpp";
@@ -1671,7 +1672,13 @@ public:
 	    contents << "#include \"souffle/CompiledSouffle.h\"\n";
 	    contents << "namespace souffle {\n";
 	    contents << "using namespace ram;\n";
+	    contents << "extern SymbolTable symTable;\n";
+	    if (predicated) {
+		contents << "extern BDD bdd;\n";
+	    }
+
 	    contents << method_decls << "\n";
+	    
 	    contents << "void " << method_name << "() {\n";
 	    contents << "const bool performIO = true;\n";
 	    contents << method_body;
