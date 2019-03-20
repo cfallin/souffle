@@ -129,6 +129,7 @@ int main(int argc, char** argv) {
                             {"generate", 'g', "FILE", "", false,
                                     "Generate C++ source code for the given Datalog program and write it to "
                                     "<FILE>."},
+			    {"target", 'z', "TARGET", "", false, "Name of target in Makefile."},
                             {"no-warn", 'w', "", "", false, "Disable warnings."},
                             {"magic-transform", 'm', "RELATIONS", "", false,
                                     "Enable magic set transformation changes on the given relations, use '*' "
@@ -470,6 +471,7 @@ int main(int argc, char** argv) {
         try {
             // Find the base filename for code generation and execution
             std::string baseFilename;
+	    std::string targetName;
             if (Global::config().has("dl-program")) {
                 baseFilename = Global::config().get("dl-program");
             } else if (Global::config().has("generate")) {
@@ -484,6 +486,11 @@ int main(int argc, char** argv) {
             if (baseName(baseFilename) == "/" || baseName(baseFilename) == ".") {
                 baseFilename = tempFile();
             }
+	    if (Global::config().has("target")) {
+		targetName = Global::config().get("target");
+	    } else {
+		targetName = baseFilename;
+	    }
 
 	    std::string dir_name = baseFilename + "/";
 	    std::string mkdir_cmd = "mkdir -p " + dir_name;
@@ -491,8 +498,8 @@ int main(int argc, char** argv) {
 		throw std::runtime_error(std::string("Could not create directory: ") + dir_name);
 	    }
 
-            std::string baseIdentifier = identifier(simpleName(baseFilename));
-            std::string sourceFilename = dir_name + baseFilename + ".cpp";
+            std::string baseIdentifier = identifier(simpleName(targetName));
+            std::string sourceFilename = dir_name + targetName + ".cpp";
 
             std::ofstream os(sourceFilename);
             auto extra_files = synthesiser->generateCode(*ramTranslationUnit, os, baseIdentifier);
@@ -517,11 +524,12 @@ int main(int argc, char** argv) {
 	    }
 
 	    // Create a Makefile
-	    std::ofstream makefile(dir_name + "Makefile-" + baseFilename);
+	    std::cerr << "Makefile name: " << (dir_name + "Makefile." + targetName) << "\n";
+	    std::ofstream makefile(dir_name + "Makefile." + targetName);
 	    makefile << "CXX := $(CCACHE) g++\n";
 	    makefile << "CXXFLAGS := -std=c++11 -fopenmp -O2 -w -I " << include_dir << "\n";
 	    makefile << "LDFLAGS := -lz -lpthread -lsqlite3 -fopenmp\n";
-	    makefile << baseFilename << ": " << baseFilename << ".o";
+	    makefile << targetName << ": " << targetName << ".o";
 	    for (const auto& p : extra_files) {
 		std::string fname = p.first;
 		if (fname.size() >= 4 && fname.substr(fname.size() - 4) == ".cpp") {
