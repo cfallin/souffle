@@ -517,7 +517,7 @@ int main(int argc, char** argv) {
 	    }
 
 	    // Create a Makefile
-	    std::ofstream makefile(dir_name + "Makefile");
+	    std::ofstream makefile(dir_name + "Makefile-" + baseFilename);
 	    makefile << "CXX := $(CCACHE) g++\n";
 	    makefile << "CXXFLAGS := -std=c++11 -fopenmp -O2 -w -I " << include_dir << "\n";
 	    makefile << "LDFLAGS := -lz -lpthread -lsqlite3 -fopenmp\n";
