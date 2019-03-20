@@ -1658,7 +1658,6 @@ public:
         assert(false && "Unsupported Node Type!");
     }
 
-    // TODO: support separate-file outputs
     void emitSeparateMethods(std::map<std::string, std::string>& out) {
 	bool predicated = Global::config().has("predicated");
 	for (auto& p : separate_methods) {
@@ -1676,6 +1675,8 @@ public:
 	    if (predicated) {
 		contents << "extern BDD bdd;\n";
 	    }
+	    contents << "extern bool regex_wrapper(const char *pattern, const char *text);\n";
+	    contents << "extern std::string substr_wrapper(const char *str, size_t idx, size_t len);\n";
 
 	    contents << method_decls << "\n";
 	    
@@ -1796,6 +1797,23 @@ std::map<std::string, std::string> Synthesiser::generateCode(
     os << "namespace souffle {\n";
     os << "using namespace ram;\n";
 
+    os << "bool regex_wrapper(const char *pattern, const char *text) {\n";
+    os << "   bool result = false; \n";
+    os << "   try { result = std::regex_match(text, std::regex(pattern)); } catch(...) { \n";
+    os << "     std::cerr << \"warning: wrong pattern provided for match(\\\"\" << pattern << \"\\\",\\\"\" "
+          "<< text << \"\\\")\\n\";\n}\n";
+    os << "   return result;\n";
+    os << "}\n";
+    os << "std::string substr_wrapper(const char *str, size_t idx, size_t len) {\n";
+    os << "   std::string sub_str, result; \n";
+    os << "   try { result = std::string(str).substr(idx,len); } catch(...) { \n";
+    os << "     std::cerr << \"warning: wrong index position provided by substr(\\\"\";\n";
+    os << "     std::cerr << str << \"\\\",\" << (int32_t)idx << \",\" << (int32_t)len << \") "
+          "functor.\\n\";\n";
+    os << "   } return result;\n";
+    os << "}\n";
+
+
     // N.B.: we make the symtab, BDD, and relations global vars so
     // that modifying the set of relations does not change the class
     // layout and invalidate separate compilation of all RAM
@@ -1884,21 +1902,6 @@ std::map<std::string, std::string> Synthesiser::generateCode(
     // print wrapper for regex
     os << "class " << classname << " : public SouffleProgram {\n";
     os << "private:\n";
-    os << "static inline bool regex_wrapper(const char *pattern, const char *text) {\n";
-    os << "   bool result = false; \n";
-    os << "   try { result = std::regex_match(text, std::regex(pattern)); } catch(...) { \n";
-    os << "     std::cerr << \"warning: wrong pattern provided for match(\\\"\" << pattern << \"\\\",\\\"\" "
-          "<< text << \"\\\")\\n\";\n}\n";
-    os << "   return result;\n";
-    os << "}\n";
-    os << "static inline std::string substr_wrapper(const char *str, size_t idx, size_t len) {\n";
-    os << "   std::string sub_str, result; \n";
-    os << "   try { result = std::string(str).substr(idx,len); } catch(...) { \n";
-    os << "     std::cerr << \"warning: wrong index position provided by substr(\\\"\";\n";
-    os << "     std::cerr << str << \"\\\",\" << (int32_t)idx << \",\" << (int32_t)len << \") "
-          "functor.\\n\";\n";
-    os << "   } return result;\n";
-    os << "}\n";
 
     if (Global::config().has("profile")) {
         os << "std::string profiling_fname;\n";
