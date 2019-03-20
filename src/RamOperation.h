@@ -400,6 +400,20 @@ public:
     /** Print */
     void print(std::ostream& os, int tabpos) const override;
 
+    /** Obtain list of child nodes */
+    std::vector<const RamNode*> getChildNodes() const override {
+        auto res = RamSearch::getChildNodes();
+	res.push_back(value.get());
+	res.push_back(relation.get());
+        for (auto& cur : pattern) {
+            if (cur) {
+                res.push_back(cur.get());
+            }
+        }
+        return res;
+    }
+
+
     /** Create clone */
     RamAggregate* clone() const override {
         RamAggregate* res = new RamAggregate(std::unique_ptr<RamOperation>(getNestedOperation()->clone()),
