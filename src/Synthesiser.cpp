@@ -316,10 +316,17 @@ public:
     }
 
     void visitLoad(const RamLoad& load, std::ostream& out) override {
+	std::stringstream ss;
+	visitLoadInternal(load, ss);
+	handleSeparateMethod(out, load, ss.str());
+    }
+
+    void visitLoadInternal(const RamLoad& load, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         out << "if (performIO) {\n";
         // get some table details
         out << "try {";
+	out << "extern std::string inputDirectory;\n";
         out << "std::map<std::string, std::string> directiveMap(";
         out << load.getIODirectives() << ");\n";
         out << "if (!inputDirectory.empty() && directiveMap[\"IO\"] == \"file\" && ";
@@ -340,10 +347,17 @@ public:
     }
 
     void visitStore(const RamStore& store, std::ostream& out) override {
+	std::stringstream ss;
+	visitStoreInternal(store, ss);
+	handleSeparateMethod(out, store, ss.str());
+    }
+
+    void visitStoreInternal(const RamStore& store, std::ostream& out) {
         PRINT_BEGIN_COMMENT(out);
         out << "if (performIO) {\n";
         for (IODirectives ioDirectives : store.getIODirectives()) {
             out << "try {";
+	    out << "extern std::string outputDirectory;\n";
             out << "std::map<std::string, std::string> directiveMap(" << ioDirectives << ");\n";
             out << "if (!outputDirectory.empty() && directiveMap[\"IO\"] == \"file\" && ";
             out << "directiveMap[\"filename\"].front() != '/') {";
@@ -1837,6 +1851,8 @@ std::map<std::string, std::string> Synthesiser::generateCode(
 	os << "BDD bdd;\n";
     }
 
+    os << "std::string inputDirectory, outputDirectory;\n";
+
     // print relation definitions
     std::map<std::string, std::string> relationDecls;
 
@@ -1994,8 +2010,10 @@ std::map<std::string, std::string> Synthesiser::generateCode(
 
     // -- run function --
 
-    os << "private:\ntemplate <bool performIO> void runFunction(std::string inputDirectory = \".\", "
-          "std::string outputDirectory = \".\") {\n";
+    os << "private:\ntemplate <bool performIO> void runFunction(std::string _inputDirectory = \".\", "
+          "std::string _outputDirectory = \".\") {\n";
+    os << "inputDirectory = _inputDirectory;\n";
+    os << "outputDirectory = _outputDirectory;\n";
 
     os << "SignalHandler::instance()->set();\n";
 
