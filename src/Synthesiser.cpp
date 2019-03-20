@@ -268,6 +268,7 @@ class CodeEmitter : public RamVisitor<void, std::ostream&> {
     // Map from method name to (body, decls) pair
     std::map<std::string, std::pair<std::string, std::string>> separate_methods;
     const std::map<std::string, std::string>& relation_decls;
+    int no_separate_method_count;
 
     struct printer {
         CodeEmitter& p;
@@ -285,7 +286,7 @@ class CodeEmitter : public RamVisitor<void, std::ostream&> {
 
 public:
     CodeEmitter(const std::map<std::string, std::string>& rel_decls)
-	: relation_decls(rel_decls) {
+	: relation_decls(rel_decls), no_separate_method_count(0) {
         rec = [&](std::ostream& out, const RamNode* node) { this->visit(*node, out); };
     }
 
@@ -916,7 +917,9 @@ public:
 	out << "CREATE_OP_CONTEXT(forallValsByKeyOpCtxt, forallValsByKey.createContext());\n";
 	out << "std::mutex forallValsByKeyLock;\n";
 
+	no_separate_method_count++;
 	visit(*fctx.getNested(), out);
+	no_separate_method_count--;
 
 	out << "}\n";
     }
@@ -1738,15 +1741,19 @@ private:
     }
 
     void handleSeparateMethod(std::ostream& out, const RamNode& node, const std::string& body) {
-	auto decls = getSeparateMethodDecls(node);
+	if (predicated || no_separate_method_count > 0) {
+	    out << body;
+	} else {
+	    auto decls = getSeparateMethodDecls(node);
 	
-	auto hash = SHA1Hash(decls + "\n" + body);
-	std::string method_name = std::string("function_") + hash;
-	if (separate_methods.find(method_name) == separate_methods.end()) {
-	    separate_methods.insert(std::make_pair(method_name, std::make_pair(body, decls)));
+	    auto hash = SHA1Hash(decls + "\n" + body);
+	    std::string method_name = std::string("function_") + hash;
+	    if (separate_methods.find(method_name) == separate_methods.end()) {
+		separate_methods.insert(std::make_pair(method_name, std::make_pair(body, decls)));
+	    }
+	    out << "extern void " << method_name << "();\n";
+	    out << method_name << "();\n";
 	}
-	out << "extern void " << method_name << "();\n";
-	out << method_name << "();\n";
     }
 };
 
