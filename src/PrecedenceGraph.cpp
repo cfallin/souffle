@@ -197,7 +197,7 @@ bool RecursiveClauses::computeIsRecursive(
     std::vector<const AstRelation*> worklist;
 
     // set up start list
-    if (trg->isNonStratifiable()) {
+    if (trg && trg->isNonStratifiable()) {
 	for (const AstAtom* cur : getAllAtoms(&clause)) {
 	    auto rel = program.getRelation(cur->getName());
 	    if (rel == trg) {
@@ -215,7 +215,7 @@ bool RecursiveClauses::computeIsRecursive(
 	    worklist.push_back(rel);
 	}
     }
-    if (trg->isNonStratifiable()) {
+    if (trg && trg->isNonStratifiable()) {
 	for (const AstAggregator* agg: getAllAggregators(&clause)) {
 	    // Due to the MaterializeAggregationQueriesTransformer
 	    // transform before, there is guaranteed to be a single
@@ -277,7 +277,7 @@ bool RecursiveClauses::computeIsRecursive(
         }
 
 	// check all aggregators in the relations
-	if (trg->isNonStratifiable()) {
+	if (trg && trg->isNonStratifiable()) {
 	    for (const AstAggregator* agg : getAllAggregators(cur)) {
 		// Due to the MaterializeAggregationQueriesTransformer
 		// transform before, there is guaranteed to be a single
