@@ -256,7 +256,7 @@ bool RecursiveClauses::computeIsRecursive(
 
         // check all atoms in the relations
         for (const AstClause* cl : cur->getClauses()) {
-	    if (trg->isNonStratifiable()) {
+	    if (trg && trg->isNonStratifiable()) {
 		for (const AstAtom* at : getAllAtoms(cl)) {
 		    auto rel = program.getRelation(at->getName());
 		    if (rel == trg) {
